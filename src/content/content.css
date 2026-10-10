@@ -1,0 +1,155 @@
+.annotation-highlight {
+  background-color: #fff3a3;
+  border-radius: 2px;
+}
+
+.annotation-note-popup {
+  position: fixed;
+  z-index: 2147483647;
+  width: 320px;
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid #d9d9d9;
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+  font-family: Arial, sans-serif;
+  direction: rtl;
+  box-sizing: border-box;
+}
+
+.annotation-note-popup-title {
+  margin-bottom: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #222222;
+}
+
+.annotation-note-popup textarea {
+  width: 100%;
+  min-height: 90px;
+  padding: 9px;
+  border: 1px solid #d6d6d6;
+  border-radius: 7px;
+  outline: none;
+  resize: vertical;
+  box-sizing: border-box;
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  direction: rtl;
+}
+
+.annotation-note-popup textarea:focus {
+  border-color: #888888;
+}
+
+.annotation-note-popup-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.annotation-note-popup button {
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: Arial, sans-serif;
+  font-size: 13px;
+}
+
+.annotation-note-save {
+  background: #222222;
+  color: #ffffff;
+}
+
+.annotation-note-cancel {
+  background: #eeeeee;
+  color: #333333;
+}
+
+.annotation-tooltip {
+  position: fixed;
+  z-index: 2147483647;
+  width: 300px;
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid #d9d9d9;
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+  font-family: Arial, sans-serif;
+  direction: rtl;
+  text-align: right;
+  box-sizing: border-box;
+}
+
+.annotation-tooltip-text-title {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #777777;
+}
+
+.annotation-tooltip-text {
+  margin-bottom: 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #222222;
+  word-break: break-word;
+}
+
+.annotation-tooltip-note-title {
+  margin-bottom: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #777777;
+}
+
+.annotation-tooltip-note {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #333333;
+  word-break: break-word;
+}
+.annotation-tooltip-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 12px;
+}
+
+.annotation-tooltip-edit {
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: #eeeeee;
+  color: #333333;
+  cursor: pointer;
+  font-family: Arial, sans-serif;
+  font-size: 13px;
+}
+
+.annotation-tooltip-edit:hover {
+  background: #e2e2e2;
+}
+.annotation-tooltip-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.annotation-tooltip-delete {
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: #eeeeee;
+  color: #333333;
+  cursor: pointer;
+  font-family: Arial, sans-serif;
+  font-size: 13px;
+}
+
+.annotation-tooltip-delete:hover {
+  background: #e2e2e2;
+}
