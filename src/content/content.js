@@ -182,7 +182,42 @@ const contextAfter = lastHighlight
   ? lastHighlight.parentElement?.textContent
       ?.slice(-100) || ""
   : "";
-saveAnnotationRecord(groupId, selectedText, note);
+saveAnnotationRecord(
+  groupId,
+  selectedText,
+  note,
+  contextBefore,
+  contextAfter
+);
+
+chrome.runtime.sendMessage(
+  {
+    type: "SUPABASE_SAVE_ANNOTATION",
+    id: groupId,
+    text: selectedText,
+    note,
+    url: location.href,
+    title: document.title,
+    contextBefore,
+    contextAfter,
+  },
+  (response) => {
+    if (chrome.runtime.lastError) {
+      console.error(
+        "Supabase save error:",
+        chrome.runtime.lastError.message
+      );
+      return;
+    }
+
+    if (!response?.success) {
+      console.error("Supabase save error:", response?.error);
+      return;
+    }
+
+    console.log("Annotation saved to Supabase:", response.data);
+  }
+);
 
     console.log("Annotation saved temporarily:", {
       text: selectedText,
@@ -305,6 +340,14 @@ function showTooltip(highlightNode, selectedText, note) {
 
     <div class="annotation-tooltip-note">
       ${escapeHtml(note)}
+    </div>
+    
+    <div class="annotation-tooltip-entities-title">
+      الكيانات والتصنيفات
+    </div>
+
+    <div class="annotation-tooltip-entities">
+      جاري تحليل النص...
     </div>
 
    
@@ -439,7 +482,29 @@ document
   });
 
 updateAnnotationRecord(groupId, newNote);
+chrome.runtime.sendMessage(
+  {
+    type: "SUPABASE_UPDATE_ANNOTATION",
+    id: groupId,
+    note: newNote,
+  },
+  (response) => {
+    if (chrome.runtime.lastError) {
+      console.error(
+        "Supabase update error:",
+        chrome.runtime.lastError.message
+      );
+      return;
+    }
 
+    if (!response?.success) {
+      console.error("Supabase update error:", response?.error);
+      return;
+    }
+
+    console.log("Annotation updated in Supabase:", response.data);
+  }
+);
 popup.remove();
 
     console.log("Annotation note updated:", {
@@ -545,6 +610,29 @@ function removeHighlight(highlightNode) {
 
   // حذف التحديد من التخزين الدائم
   deleteAnnotationRecord(groupId);
+  
+chrome.runtime.sendMessage(
+  {
+    type: "SUPABASE_DELETE_ANNOTATION",
+    id: groupId,
+  },
+  (response) => {
+    if (chrome.runtime.lastError) {
+      console.error(
+        "Supabase delete error:",
+        chrome.runtime.lastError.message
+      );
+      return;
+    }
+
+    if (!response?.success) {
+      console.error("Supabase delete error:", response?.error);
+      return;
+    }
+
+    console.log("Annotation deleted from Supabase:", response.data);
+  }
+);
 
   const highlights = groupId
     ? Array.from(
@@ -581,13 +669,34 @@ function getPageStorageKey() {
   return `annotations:${location.href}`;
 }
 
-function getPageAnnotations(callback) {
-  const key = getPageStorageKey();
 
-  chrome.storage.local.get([key], (result) => {
-    callback(result[key] || []);
-  });
+function getPageAnnotations(callback) {
+  chrome.runtime.sendMessage(
+    {
+      type: "SUPABASE_GET_ANNOTATIONS",
+      url: location.href,
+    },
+    (response) => {
+      if (chrome.runtime.lastError) {
+        console.error(
+          "Supabase fetch error:",
+          chrome.runtime.lastError.message
+        );
+        callback([]);
+        return;
+      }
+
+      if (!response?.success) {
+        console.error("Supabase fetch error:", response?.error);
+        callback([]);
+        return;
+      }
+
+      callback(response.data || []);
+    }
+  );
 }
+
 
 function savePageAnnotations(annotations, callback = () => {}) {
   const key = getPageStorageKey();
