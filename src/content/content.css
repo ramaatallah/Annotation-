@@ -153,3 +153,97 @@
 .annotation-tooltip-delete:hover {
   background: #e2e2e2;
 }
+
+
+
+
+
+.annotation-tooltip-entities-title {
+  margin: 12px 0 6px;
+  padding-top: 10px;
+  border-top: 1px solid #eeeeee;
+  font-size: 12px;
+  font-weight: 700;
+  color: #777777;
+}
+
+.annotation-tooltip-entities {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: 13px;
+  color: #555555;
+}
+
+.annotation-entity-item {
+  padding: 8px 10px;
+  background: #f8fafc;
+  border-right: 4px solid var(--ent-color);
+  border-radius: 8px;
+}
+
+.annotation-entity-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.annotation-entity-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #222222;
+  word-break: break-word;
+}
+
+.annotation-entity-badge {
+  flex-shrink: 0;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--ent-color);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.annotation-entity-subtype {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ent-color);
+  font-weight: 700;
+}
+
+.annotation-entity-conf-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.annotation-entity-bar {
+  flex: 1;
+  height: 5px;
+  background: #e5e7eb;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.annotation-entity-bar-fill {
+  height: 100%;
+  background: var(--ent-color);
+  border-radius: 999px;
+}
+
+.annotation-entity-conf {
+  font-size: 11px;
+  color: #6b7280;
+  min-width: 32px;
+  text-align: left;
+}
+
+.annotation-entity-empty {
+  font-size: 12px;
+  color: #6b7280;
+}

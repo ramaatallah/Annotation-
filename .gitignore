@@ -24,3 +24,19 @@ Thumbs.db
 .idea/
 
 .env.local
+
+
+# Python virtual environment
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Model cache
+.cache/
+.cache/huggingface/
+
+# Environment secrets
+.env

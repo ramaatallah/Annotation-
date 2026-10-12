@@ -47,11 +47,11 @@ document.addEventListener("mouseup", () => {
   selection.removeAllRanges();
 });
 
-
 function highlightSelection(range, savedGroupId = crypto.randomUUID()) {
   const textNodes = getTextNodesInRange(range);
   const highlightedNodes = [];
   const groupId = savedGroupId;
+
   textNodes.forEach((textNode) => {
     const nodeRange = document.createRange();
 
@@ -84,7 +84,6 @@ function highlightSelection(range, savedGroupId = crypto.randomUUID()) {
   return highlightedNodes;
 }
 
-
 function getTextNodesInRange(range) {
   const textNodes = [];
 
@@ -94,10 +93,7 @@ function getTextNodesInRange(range) {
     root = root.parentNode;
   }
 
-  const walker = document.createTreeWalker(
-    root,
-    NodeFilter.SHOW_TEXT
-  );
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
 
   let currentNode;
 
@@ -163,61 +159,60 @@ function showNotePopup(range, highlightedNodes, selectedText) {
     }
 
     highlightedNodes.forEach((node) => {
-  node.dataset.annotationNote = note;
-  node.dataset.annotationText = selectedText;
+      node.dataset.annotationNote = note;
+      node.dataset.annotationText = selectedText;
 
-  attachTooltip(node);
-});
+      attachTooltip(node);
+    });
 
-const groupId = highlightedNodes[0].dataset.annotationGroup;
-const firstHighlight = highlightedNodes[0];
-const lastHighlight = highlightedNodes[highlightedNodes.length - 1];
+    const groupId = highlightedNodes[0].dataset.annotationGroup;
+    const firstHighlight = highlightedNodes[0];
+    const lastHighlight = highlightedNodes[highlightedNodes.length - 1];
 
-const contextBefore = firstHighlight
-  ? firstHighlight.parentElement?.textContent
-      ?.slice(0, 100) || ""
-  : "";
+    const contextBefore = firstHighlight
+      ? firstHighlight.parentElement?.textContent?.slice(0, 100) || ""
+      : "";
 
-const contextAfter = lastHighlight
-  ? lastHighlight.parentElement?.textContent
-      ?.slice(-100) || ""
-  : "";
-saveAnnotationRecord(
-  groupId,
-  selectedText,
-  note,
-  contextBefore,
-  contextAfter
-);
+    const contextAfter = lastHighlight
+      ? lastHighlight.parentElement?.textContent?.slice(-100) || ""
+      : "";
 
-chrome.runtime.sendMessage(
-  {
-    type: "SUPABASE_SAVE_ANNOTATION",
-    id: groupId,
-    text: selectedText,
-    note,
-    url: location.href,
-    title: document.title,
-    contextBefore,
-    contextAfter,
-  },
-  (response) => {
-    if (chrome.runtime.lastError) {
-      console.error(
-        "Supabase save error:",
-        chrome.runtime.lastError.message
-      );
-      return;
-    }
+    saveAnnotationRecord(
+      groupId,
+      selectedText,
+      note,
+      contextBefore,
+      contextAfter
+    );
 
-    if (!response?.success) {
-      console.error("Supabase save error:", response?.error);
-      return;
-    }
+    chrome.runtime.sendMessage(
+      {
+        type: "SUPABASE_SAVE_ANNOTATION",
+        id: groupId,
+        text: selectedText,
+        note,
+        url: location.href,
+        title: document.title,
+        contextBefore,
+        contextAfter,
+      },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          console.error(
+            "Supabase save error:",
+            chrome.runtime.lastError.message
+          );
+          return;
+        }
 
-    console.log("Annotation saved to Supabase:", response.data);
-  }
-);
+        if (!response?.success) {
+          console.error("Supabase save error:", response?.error);
+          return;
+        }
+
+        console.log("Annotation saved to Supabase:", response.data);
+      }
+    );
 
     console.log("Annotation saved temporarily:", {
       text: selectedText,
@@ -279,9 +274,7 @@ function positionNotePopup(popup, range) {
 }
 
 function removeExistingNotePopup() {
-  const existingPopup = document.querySelector(
-    ".annotation-note-popup"
-  );
+  const existingPopup = document.querySelector(".annotation-note-popup");
 
   if (existingPopup) {
     existingPopup.remove();
@@ -308,13 +301,90 @@ function attachTooltip(highlightNode) {
     }
 
     setTimeout(() => {
-      if (
-        !tooltip.matches(":hover") &&
-        !highlightNode.matches(":hover")
-      ) {
+      if (!tooltip.matches(":hover") && !highlightNode.matches(":hover")) {
         removeTooltip();
       }
     }, 150);
+  });
+}
+
+/* ------------------------------------------------------------------
+   عرض الكيانات: ألوان حسب النوع + بطاقة لكل كيان
+------------------------------------------------------------------ */
+
+const ENTITY_COLORS = {
+  PERSON: "#2563eb",
+  LOCATION: "#16a34a",
+  ORGANIZATION: "#9333ea",
+  DATE: "#ea580c",
+  DISEASE: "#dc2626",
+};
+
+function renderEntities(container, entities) {
+  container.replaceChildren();
+
+  if (!entities || entities.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "annotation-entity-empty";
+    empty.textContent = "لم يتم العثور على كيانات.";
+    container.appendChild(empty);
+    return;
+  }
+
+  entities.forEach((entity) => {
+    const color = ENTITY_COLORS[entity.type] || "#64748b";
+
+    const item = document.createElement("div");
+    item.className = "annotation-entity-item";
+    item.style.setProperty("--ent-color", color);
+
+    // السطر الأول: الاسم + شارة التصنيف
+    const top = document.createElement("div");
+    top.className = "annotation-entity-top";
+
+    const name = document.createElement("span");
+    name.className = "annotation-entity-name";
+    name.textContent = entity.text;
+
+    const badge = document.createElement("span");
+    badge.className = "annotation-entity-badge";
+    badge.textContent = entity.type_ar || entity.type;
+
+    top.append(name, badge);
+    item.appendChild(top);
+
+    // التصنيف الفرعي (إذا موجود)
+    if (entity.subtype_ar) {
+      const subtype = document.createElement("div");
+      subtype.className = "annotation-entity-subtype";
+      subtype.textContent = entity.subtype_ar;
+      item.appendChild(subtype);
+    }
+
+    // درجة الثقة: شريط + نسبة
+    if (typeof entity.confidence === "number") {
+      const percent = Math.round(entity.confidence * 100);
+
+      const confRow = document.createElement("div");
+      confRow.className = "annotation-entity-conf-row";
+
+      const bar = document.createElement("div");
+      bar.className = "annotation-entity-bar";
+
+      const fill = document.createElement("div");
+      fill.className = "annotation-entity-bar-fill";
+      fill.style.width = `${percent}%`;
+      bar.appendChild(fill);
+
+      const label = document.createElement("span");
+      label.className = "annotation-entity-conf";
+      label.textContent = `${percent}%`;
+
+      confRow.append(bar, label);
+      item.appendChild(confRow);
+    }
+
+    container.appendChild(item);
   });
 }
 
@@ -341,7 +411,7 @@ function showTooltip(highlightNode, selectedText, note) {
     <div class="annotation-tooltip-note">
       ${escapeHtml(note)}
     </div>
-    
+
     <div class="annotation-tooltip-entities-title">
       الكيانات والتصنيفات
     </div>
@@ -350,66 +420,68 @@ function showTooltip(highlightNode, selectedText, note) {
       جاري تحليل النص...
     </div>
 
-   
-<div class="annotation-tooltip-actions">
-  <button
-    type="button"
-    class="annotation-tooltip-edit"
-  >
-    تعديل الملاحظة
-  </button>
+    <div class="annotation-tooltip-actions">
+      <button
+        type="button"
+        class="annotation-tooltip-edit"
+      >
+        تعديل الملاحظة
+      </button>
 
-  <button
-    type="button"
-    class="annotation-tooltip-remove"
-  >
-    إزالة التحديد
-  </button>
-</div>
-
+      <button
+        type="button"
+        class="annotation-tooltip-remove"
+      >
+        إزالة التحديد
+      </button>
+    </div>
   `;
 
   document.documentElement.appendChild(tooltip);
 
-  
+  const entitiesContainer = tooltip.querySelector(
+    ".annotation-tooltip-entities"
+  );
+
+  analyzeText(selectedText)
+    .then((entities) => {
+      renderEntities(entitiesContainer, entities);
+      // إعادة التموضع بعد ما تغيّر طول البطاقة
+      positionTooltip(tooltip, highlightNode);
+    })
+    .catch(() => {
+      entitiesContainer.textContent =
+        "تعذّر تحليل النص. تأكدي من تشغيل خدمة التحليل.";
+    });
+
   positionTooltip(tooltip, highlightNode);
 
   tooltip.addEventListener("mouseleave", () => {
     setTimeout(() => {
-      if (
-        !tooltip.matches(":hover") &&
-        !highlightNode.matches(":hover")
-      ) {
+      if (!tooltip.matches(":hover") && !highlightNode.matches(":hover")) {
         removeTooltip();
       }
     }, 150);
   });
 
- 
-const editButton = tooltip.querySelector(
-  ".annotation-tooltip-edit"
-);
+  const editButton = tooltip.querySelector(".annotation-tooltip-edit");
+  const removeButton = tooltip.querySelector(".annotation-tooltip-remove");
 
-const removeButton = tooltip.querySelector(
-  ".annotation-tooltip-remove"
-);
+  editButton.addEventListener("click", (event) => {
+    event.stopPropagation();
 
-editButton.addEventListener("click", (event) => {
-  event.stopPropagation();
+    showEditNotePopup(
+      highlightNode,
+      selectedText,
+      highlightNode.dataset.annotationNote
+    );
+  });
 
-  showEditNotePopup(
-    highlightNode,
-    selectedText,
-    highlightNode.dataset.annotationNote
-  );
-});
+  removeButton.addEventListener("click", (event) => {
+    event.stopPropagation();
 
-removeButton.addEventListener("click", (event) => {
-  event.stopPropagation();
-
-  removeHighlight(highlightNode);
-});
-
+    removeHighlight(highlightNode);
+  });
 }
 
 function deleteAnnotationNote(highlightNode) {
@@ -471,41 +543,41 @@ function showEditNotePopup(highlightNode, selectedText, currentNote) {
       return;
     }
 
-   const groupId = highlightNode.dataset.annotationGroup;
+    const groupId = highlightNode.dataset.annotationGroup;
 
-document
-  .querySelectorAll(".annotation-highlight")
-  .forEach((node) => {
-    if (node.dataset.annotationGroup === groupId) {
-      node.dataset.annotationNote = newNote;
-    }
-  });
+    document.querySelectorAll(".annotation-highlight").forEach((node) => {
+      if (node.dataset.annotationGroup === groupId) {
+        node.dataset.annotationNote = newNote;
+      }
+    });
 
-updateAnnotationRecord(groupId, newNote);
-chrome.runtime.sendMessage(
-  {
-    type: "SUPABASE_UPDATE_ANNOTATION",
-    id: groupId,
-    note: newNote,
-  },
-  (response) => {
-    if (chrome.runtime.lastError) {
-      console.error(
-        "Supabase update error:",
-        chrome.runtime.lastError.message
-      );
-      return;
-    }
+    updateAnnotationRecord(groupId, newNote);
 
-    if (!response?.success) {
-      console.error("Supabase update error:", response?.error);
-      return;
-    }
+    chrome.runtime.sendMessage(
+      {
+        type: "SUPABASE_UPDATE_ANNOTATION",
+        id: groupId,
+        note: newNote,
+      },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          console.error(
+            "Supabase update error:",
+            chrome.runtime.lastError.message
+          );
+          return;
+        }
 
-    console.log("Annotation updated in Supabase:", response.data);
-  }
-);
-popup.remove();
+        if (!response?.success) {
+          console.error("Supabase update error:", response?.error);
+          return;
+        }
+
+        console.log("Annotation updated in Supabase:", response.data);
+      }
+    );
+
+    popup.remove();
 
     console.log("Annotation note updated:", {
       text: selectedText,
@@ -519,6 +591,7 @@ popup.remove();
 
   positionEditPopup(popup, highlightNode);
 }
+
 function positionEditPopup(popup, highlightNode) {
   const rect = highlightNode.getBoundingClientRect();
 
@@ -582,9 +655,7 @@ function positionTooltip(tooltip, highlightNode) {
 }
 
 function removeTooltip() {
-  const existingTooltip = document.querySelector(
-    ".annotation-tooltip"
-  );
+  const existingTooltip = document.querySelector(".annotation-tooltip");
 
   if (existingTooltip) {
     existingTooltip.remove();
@@ -599,10 +670,6 @@ function escapeHtml(value) {
   return div.innerHTML;
 }
 
-
-
-
-
 function removeHighlight(highlightNode) {
   removeTooltip();
 
@@ -610,36 +677,33 @@ function removeHighlight(highlightNode) {
 
   // حذف التحديد من التخزين الدائم
   deleteAnnotationRecord(groupId);
-  
-chrome.runtime.sendMessage(
-  {
-    type: "SUPABASE_DELETE_ANNOTATION",
-    id: groupId,
-  },
-  (response) => {
-    if (chrome.runtime.lastError) {
-      console.error(
-        "Supabase delete error:",
-        chrome.runtime.lastError.message
-      );
-      return;
-    }
 
-    if (!response?.success) {
-      console.error("Supabase delete error:", response?.error);
-      return;
-    }
+  chrome.runtime.sendMessage(
+    {
+      type: "SUPABASE_DELETE_ANNOTATION",
+      id: groupId,
+    },
+    (response) => {
+      if (chrome.runtime.lastError) {
+        console.error(
+          "Supabase delete error:",
+          chrome.runtime.lastError.message
+        );
+        return;
+      }
 
-    console.log("Annotation deleted from Supabase:", response.data);
-  }
-);
+      if (!response?.success) {
+        console.error("Supabase delete error:", response?.error);
+        return;
+      }
+
+      console.log("Annotation deleted from Supabase:", response.data);
+    }
+  );
 
   const highlights = groupId
-    ? Array.from(
-        document.querySelectorAll(".annotation-highlight")
-      ).filter(
-        (node) =>
-          node.dataset.annotationGroup === groupId
+    ? Array.from(document.querySelectorAll(".annotation-highlight")).filter(
+        (node) => node.dataset.annotationGroup === groupId
       )
     : [highlightNode];
 
@@ -651,10 +715,7 @@ chrome.runtime.sendMessage(
     }
 
     while (highlight.firstChild) {
-      parent.insertBefore(
-        highlight.firstChild,
-        highlight
-      );
+      parent.insertBefore(highlight.firstChild, highlight);
     }
 
     parent.removeChild(highlight);
@@ -664,11 +725,9 @@ chrome.runtime.sendMessage(
   console.log("Complete highlight group removed");
 }
 
-
 function getPageStorageKey() {
   return `annotations:${location.href}`;
 }
-
 
 function getPageAnnotations(callback) {
   chrome.runtime.sendMessage(
@@ -697,16 +756,11 @@ function getPageAnnotations(callback) {
   );
 }
 
-
 function savePageAnnotations(annotations, callback = () => {}) {
   const key = getPageStorageKey();
 
-  chrome.storage.local.set(
-    { [key]: annotations },
-    callback
-  );
+  chrome.storage.local.set({ [key]: annotations }, callback);
 }
-
 
 function saveAnnotationRecord(
   groupId,
@@ -716,9 +770,7 @@ function saveAnnotationRecord(
   contextAfter = ""
 ) {
   getPageAnnotations((annotations) => {
-    const updated = annotations.filter(
-      (item) => item.id !== groupId
-    );
+    const updated = annotations.filter((item) => item.id !== groupId);
 
     updated.push({
       id: groupId,
@@ -735,13 +787,10 @@ function saveAnnotationRecord(
   });
 }
 
-
 function updateAnnotationRecord(groupId, newNote) {
   getPageAnnotations((annotations) => {
     const updated = annotations.map((item) =>
-      item.id === groupId
-        ? { ...item, note: newNote }
-        : item
+      item.id === groupId ? { ...item, note: newNote } : item
     );
 
     savePageAnnotations(updated);
@@ -750,15 +799,11 @@ function updateAnnotationRecord(groupId, newNote) {
 
 function deleteAnnotationRecord(groupId) {
   getPageAnnotations((annotations) => {
-    const updated = annotations.filter(
-      (item) => item.id !== groupId
-    );
+    const updated = annotations.filter((item) => item.id !== groupId);
 
     savePageAnnotations(updated);
   });
 }
-
-
 
 function findTextRange(searchText) {
   if (typeof searchText !== "string" || !searchText || !document.body) {
@@ -777,9 +822,9 @@ function findTextRange(searchText) {
           !parent ||
           parent.closest(
             "script, style, noscript, textarea, input, " +
-            "button, select, option, " +
-            ".annotation-highlight, " +
-            ".annotation-note-popup, .annotation-tooltip"
+              "button, select, option, " +
+              ".annotation-highlight, " +
+              ".annotation-note-popup, .annotation-tooltip"
           )
         ) {
           return NodeFilter.FILTER_REJECT;
@@ -844,8 +889,7 @@ function findTextRange(searchText) {
   }
 
   const originalStart = source.map[index];
-  const originalEnd =
-    source.map[index + target.normalized.length - 1] + 1;
+  const originalEnd = source.map[index + target.normalized.length - 1] + 1;
 
   function pointAt(offset, isEnd = false) {
     const segment = segments.find((item) =>
@@ -877,10 +921,6 @@ function findTextRange(searchText) {
 
   return range;
 }
-
-
-
-
 
 function restoreSavedAnnotations() {
   getPageAnnotations((annotations) => {
@@ -930,3 +970,25 @@ function restoreSavedAnnotations() {
   });
 }
 
+async function analyzeText(text) {
+  try {
+    const response = await fetch("http://127.0.0.1:8000/analyze", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ text }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.entities || [];
+  } catch (error) {
+    console.error("Entity analysis error:", error);
+    throw error;
+  }
+}
