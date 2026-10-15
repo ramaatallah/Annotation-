@@ -1,5 +1,7 @@
-
 import { supabase } from "../shared/supabase.js";
+
+// عنوان خدمة التحليل (NER). غيّريه هون بس إذا تغيّر (مثلاً رابط ngrok).
+const ANALYZE_API_URL = "http://127.0.0.1:8000/analyze";
 
 async function getCurrentUser() {
   const { data, error } = await supabase.auth.getUser();
@@ -134,6 +136,25 @@ async function getPageAnnotations(message) {
   }));
 }
 
+// تحليل النص (NER) عبر الـ background بدل الـ content script
+async function analyzeText(message) {
+  if (typeof message.text !== "string" || !message.text.trim()) {
+    return [];
+  }
+
+  const response = await fetch(ANALYZE_API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: message.text }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.entities || [];
+}
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "SUPABASE_ANONYMOUS_SIGN_IN") {
@@ -161,6 +182,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     SUPABASE_UPDATE_ANNOTATION: updateAnnotation,
     SUPABASE_DELETE_ANNOTATION: deleteAnnotation,
     SUPABASE_GET_ANNOTATIONS: getPageAnnotations,
+    ANALYZE_TEXT: analyzeText,
   };
 
   const action = actions[message?.type];
@@ -170,11 +192,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   action(message)
     .then((data) => sendResponse({ success: true, data }))
     .catch((error) => {
-      console.error("Supabase annotation error:", error);
+      console.error("Background action error:", message?.type, error);
 
       sendResponse({
         success: false,
-        error: error.message || "Unknown Supabase error",
+        error: error.message || "Unknown error",
       });
     });
 

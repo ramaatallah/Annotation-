@@ -970,25 +970,20 @@ function restoreSavedAnnotations() {
   });
 }
 
-async function analyzeText(text) {
-  try {
-    const response = await fetch("http://127.0.0.1:8000/analyze", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({ text }),
+function analyzeText(text) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ type: "ANALYZE_TEXT", text }, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+
+      if (!response?.success) {
+        reject(new Error(response?.error || "Analysis failed"));
+        return;
+      }
+
+      resolve(response.data);
     });
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data.entities || [];
-  } catch (error) {
-    console.error("Entity analysis error:", error);
-    throw error;
-  }
+  });
 }
