@@ -3,6 +3,8 @@
   border-radius: 2px;
 }
 
+/* ---------- نافذة إضافة / تعديل الملاحظة ---------- */
+
 .annotation-note-popup {
   position: fixed;
   z-index: 2147483647;
@@ -69,6 +71,8 @@
   color: #333333;
 }
 
+/* ---------- بطاقة العرض (Tooltip) ---------- */
+
 .annotation-tooltip {
   position: fixed;
   z-index: 2147483647;
@@ -112,26 +116,9 @@
   color: #333333;
   word-break: break-word;
 }
-.annotation-tooltip-actions {
-  display: flex;
-  justify-content: flex-start;
-  margin-top: 12px;
-}
 
-.annotation-tooltip-edit {
-  padding: 7px 12px;
-  border: 0;
-  border-radius: 6px;
-  background: #eeeeee;
-  color: #333333;
-  cursor: pointer;
-  font-family: Arial, sans-serif;
-  font-size: 13px;
-}
+/* ---------- أزرار البطاقة ---------- */
 
-.annotation-tooltip-edit:hover {
-  background: #e2e2e2;
-}
 .annotation-tooltip-actions {
   display: flex;
   justify-content: flex-start;
@@ -139,7 +126,8 @@
   margin-top: 12px;
 }
 
-.annotation-tooltip-delete {
+.annotation-tooltip-edit,
+.annotation-tooltip-remove {
   padding: 7px 12px;
   border: 0;
   border-radius: 6px;
@@ -150,13 +138,12 @@
   font-size: 13px;
 }
 
-.annotation-tooltip-delete:hover {
+.annotation-tooltip-edit:hover,
+.annotation-tooltip-remove:hover {
   background: #e2e2e2;
 }
 
-
-
-
+/* ---------- الكيانات والتصنيفات ---------- */
 
 .annotation-tooltip-entities-title {
   margin: 12px 0 6px;
