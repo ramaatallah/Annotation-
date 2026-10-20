@@ -9,6 +9,12 @@ chrome.storage.local.get(["annotationEnabled"], (result) => {
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.annotationEnabled) {
     annotationEnabled = changes.annotationEnabled.newValue ?? false;
+    
+    // إذا تحولت الإضافة إلى OFF، نقوم بإغلاق أي صندوق ملاحظات مفتوح أو نافذة منبثقة فوراً
+    if (!annotationEnabled) {
+      removeExistingNotePopup();
+      removeTooltip();
+    }
   }
 });
 
@@ -283,6 +289,8 @@ function removeExistingNotePopup() {
 
 function attachTooltip(highlightNode) {
   highlightNode.addEventListener("mouseenter", () => {
+    if (!annotationEnabled) return; // منع عرض الـ Tooltip إذا كانت الإضافة متوقفة
+    
     const note = highlightNode.dataset.annotationNote;
     const selectedText = highlightNode.dataset.annotationText;
 
@@ -309,7 +317,7 @@ function attachTooltip(highlightNode) {
 }
 
 /* ------------------------------------------------------------------
-   عرض الكيانات: ألوان حسب النوع + بطاقة لكل كيان
+    عرض الكيانات: ألوان حسب النوع + بطاقة لكل كيان
 ------------------------------------------------------------------ */
 
 const ENTITY_COLORS = {
@@ -338,7 +346,6 @@ function renderEntities(container, entities) {
     item.className = "annotation-entity-item";
     item.style.setProperty("--ent-color", color);
 
-    // السطر الأول: الاسم + شارة التصنيف
     const top = document.createElement("div");
     top.className = "annotation-entity-top";
 
@@ -353,7 +360,6 @@ function renderEntities(container, entities) {
     top.append(name, badge);
     item.appendChild(top);
 
-    // التصنيف الفرعي (إذا موجود)
     if (entity.subtype_ar) {
       const subtype = document.createElement("div");
       subtype.className = "annotation-entity-subtype";
@@ -361,7 +367,6 @@ function renderEntities(container, entities) {
       item.appendChild(subtype);
     }
 
-    // درجة الثقة: شريط + نسبة
     if (typeof entity.confidence === "number") {
       const percent = Math.round(entity.confidence * 100);
 
@@ -446,7 +451,6 @@ function showTooltip(highlightNode, selectedText, note) {
   analyzeText(selectedText)
     .then((entities) => {
       renderEntities(entitiesContainer, entities);
-      // إعادة التموضع بعد ما تغيّر طول البطاقة
       positionTooltip(tooltip, highlightNode);
     })
     .catch(() => {
@@ -675,7 +679,6 @@ function removeHighlight(highlightNode) {
 
   const groupId = highlightNode.dataset.annotationGroup;
 
-  // حذف التحديد من التخزين الدائم
   deleteAnnotationRecord(groupId);
 
   chrome.runtime.sendMessage(
@@ -857,7 +860,6 @@ function findTextRange(searchText) {
     for (let i = 0; i < value.length; i++) {
       const char = value[i];
 
-      // تجاهل المسافات وعلامات الترقيم في البحث.
       if (/[\s\p{P}\p{S}]/u.test(char)) {
         continue;
       }
@@ -970,20 +972,25 @@ function restoreSavedAnnotations() {
   });
 }
 
-function analyzeText(text) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({ type: "ANALYZE_TEXT", text }, (response) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-
-      if (!response?.success) {
-        reject(new Error(response?.error || "Analysis failed"));
-        return;
-      }
-
-      resolve(response.data);
+async function analyzeText(text) {
+  try {
+    const response = await fetch("http://127.0.0.1:8000/analyze", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ text }),
     });
-  });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.entities || [];
+  } catch (error) {
+    console.error("Entity analysis error:", error);
+    throw error;
+  }
 }
