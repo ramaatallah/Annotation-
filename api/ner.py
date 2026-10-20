@@ -1,6 +1,17 @@
 from functools import lru_cache
 import torch
 from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
+import nltk
+from nltk.stem.isri import ISRIStemmer
+
+# Download basic NLTK data if not already present
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt')
+
+# Initialize Arabic root stemmer
+stemmer = ISRIStemmer()
 
 MODEL_NAME = "hatmimoha/arabic-ner"
 
@@ -68,11 +79,33 @@ def classify_subtype(text, entity_type):
     return None, None
 
 
+def extract_roots_for_text(text, detected_entities=None):
+    """
+    Extracts triliteral and quadriliteral roots for appropriate words,
+    while excluding detected entities (such as names, organizations, and dates).
+    """
+    if detected_entities is None:
+        detected_entities = []
+
+    words = nltk.word_tokenize(text)
+    processed_words = []
+
+    for word in words:
+        # If the word is a detected entity or punctuation, do not apply stemming
+        if word in detected_entities or not word.isalpha():
+            processed_words.append(word)
+        else:
+            processed_words.append(stemmer.stem(word))
+
+    return " ".join(processed_words)
+
+
 def analyze_text(text):
     ner = get_ner()
     results = ner(text)
 
     entities = []
+    detected_entity_texts = []
 
     for entity in results:
         original_type = entity["entity_group"]
@@ -80,6 +113,8 @@ def analyze_text(text):
 
         if not entity_text:
             continue
+
+        detected_entity_texts.append(entity_text)
 
         subtype, subtype_ar = classify_subtype(
             entity_text,
@@ -98,4 +133,10 @@ def analyze_text(text):
             "source": "model",
         })
 
-    return entities
+    # Extract roots for the text while excluding detected entities to improve search results
+    processed_text_with_roots = extract_roots_for_text(text, detected_entity_texts)
+
+    return {
+        "entities": entities,
+        "processed_text": processed_text_with_roots
+    }
