@@ -183,14 +183,6 @@ function showNotePopup(range, highlightedNodes, selectedText) {
       ? lastHighlight.parentElement?.textContent?.slice(-100) || ""
       : "";
 
-    saveAnnotationRecord(
-      groupId,
-      selectedText,
-      note,
-      contextBefore,
-      contextAfter
-    );
-
     chrome.runtime.sendMessage(
       {
         type: "SUPABASE_SAVE_ANNOTATION",
@@ -219,11 +211,6 @@ function showNotePopup(range, highlightedNodes, selectedText) {
         console.log("Annotation saved to Supabase:", response.data);
       }
     );
-
-    console.log("Annotation saved temporarily:", {
-      text: selectedText,
-      note,
-    });
 
     popup.remove();
   });
@@ -326,6 +313,10 @@ const ENTITY_COLORS = {
   ORGANIZATION: "#9333ea",
   DATE: "#ea580c",
   DISEASE: "#dc2626",
+  EVENT: "#0891b2",
+  PRODUCT: "#ca8a04",
+  COMPETITION: "#db2777",
+  PRICE: "#475569",
 };
 
 function renderEntities(container, entities) {
@@ -448,7 +439,7 @@ function showTooltip(highlightNode, selectedText, note) {
     ".annotation-tooltip-entities"
   );
 
-  analyzeText(selectedText)
+  analyzeTextCached(selectedText)
     .then((entities) => {
       renderEntities(entitiesContainer, entities);
       positionTooltip(tooltip, highlightNode);
@@ -486,14 +477,6 @@ function showTooltip(highlightNode, selectedText, note) {
 
     removeHighlight(highlightNode);
   });
-}
-
-function deleteAnnotationNote(highlightNode) {
-  highlightNode.dataset.annotationNote = "";
-
-  removeTooltip();
-
-  console.log("Annotation note deleted");
 }
 
 function showEditNotePopup(highlightNode, selectedText, currentNote) {
@@ -554,8 +537,6 @@ function showEditNotePopup(highlightNode, selectedText, currentNote) {
         node.dataset.annotationNote = newNote;
       }
     });
-
-    updateAnnotationRecord(groupId, newNote);
 
     chrome.runtime.sendMessage(
       {
@@ -728,10 +709,6 @@ function removeHighlight(highlightNode) {
   console.log("Complete highlight group removed");
 }
 
-function getPageStorageKey() {
-  return `annotations:${location.href}`;
-}
-
 function getPageAnnotations(callback) {
   chrome.runtime.sendMessage(
     {
@@ -757,55 +734,6 @@ function getPageAnnotations(callback) {
       callback(response.data || []);
     }
   );
-}
-
-function savePageAnnotations(annotations, callback = () => {}) {
-  const key = getPageStorageKey();
-
-  chrome.storage.local.set({ [key]: annotations }, callback);
-}
-
-function saveAnnotationRecord(
-  groupId,
-  text,
-  note,
-  contextBefore = "",
-  contextAfter = ""
-) {
-  getPageAnnotations((annotations) => {
-    const updated = annotations.filter((item) => item.id !== groupId);
-
-    updated.push({
-      id: groupId,
-      text,
-      note,
-      url: location.href,
-      contextBefore,
-      contextAfter,
-    });
-
-    savePageAnnotations(updated, () => {
-      console.log("Annotation stored successfully");
-    });
-  });
-}
-
-function updateAnnotationRecord(groupId, newNote) {
-  getPageAnnotations((annotations) => {
-    const updated = annotations.map((item) =>
-      item.id === groupId ? { ...item, note: newNote } : item
-    );
-
-    savePageAnnotations(updated);
-  });
-}
-
-function deleteAnnotationRecord(groupId) {
-  getPageAnnotations((annotations) => {
-    const updated = annotations.filter((item) => item.id !== groupId);
-
-    savePageAnnotations(updated);
-  });
 }
 
 function findTextRange(searchText) {
@@ -987,6 +915,27 @@ async function analyzeText(text) {
       throw new Error(`API error: ${response.status}`);
     }
 
+      resolve(response.data);
+    });
+  });
+}
+
+// كاش للتحليل: نفس النص ما بنرسله للسيرفر أكتر من مرة.
+// بنخزّن الـ Promise نفسه، فإذا صار أكتر من hover بنفس الوقت بيشاركوا طلب واحد.
+const entityCache = new Map();
+
+function analyzeTextCached(text) {
+  if (!entityCache.has(text)) {
+    const promise = analyzeText(text).catch((error) => {
+      entityCache.delete(text); // لا نخزّن الفشل، عشان يعيد المحاولة
+      throw error;
+    });
+
+    entityCache.set(text, promise);
+  }
+
+  return entityCache.get(text);
+}
     const data = await response.json();
     return data.entities || [];
   } catch (error) {

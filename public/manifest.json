@@ -9,7 +9,8 @@
   ],
 
   "host_permissions": [
-    "<all_urls>"
+    "<all_urls>",
+    "http://127.0.0.1:8000/*"
   ],
 
   "action": {
@@ -17,12 +18,10 @@
     "default_popup": "index.html"
   },
 
-  
-"background": {
-  "service_worker": "background.js",
-  "type": "module"
-},
-
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
 
   "content_scripts": [
     {
@@ -31,8 +30,5 @@
       "css": ["content.css"],
       "run_at": "document_idle"
     }
-  ],
-
-  "host_permissions": ["http://127.0.0.1:8000/*"]
-
+  ]
 }
