@@ -1,51 +1,47 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+import { crx } from '@crxjs/vite-plugin';
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
-const rootDir = fileURLToPath(new URL(".", import.meta.url));
+// فحص قراءة ملف manifest.json بأمان لتجنب إيقاف التشغيل
+function getManifest() {
+  const rootManifestPath = resolve(process.cwd(), 'manifest.json');
+  const publicManifestPath = resolve(process.cwd(), 'public/manifest.json');
+
+  if (existsSync(rootManifestPath)) {
+    return JSON.parse(readFileSync(rootManifestPath, 'utf-8'));
+  } else if (existsSync(publicManifestPath)) {
+    return JSON.parse(readFileSync(publicManifestPath, 'utf-8'));
+  }
+  
+  console.warn('⚠️ تنبيه: لم يتم العثور على manifest.json في المجلد الرئيسي أو public. سيتم بناء التطبيق كـ Web App عادياً.');
+  return null;
+}
+
+const manifest = getManifest();
 
 export default defineConfig({
-  plugins: [react()],
-
+  plugins: [
+    react(),
+    tailwindcss(),
+    ...(manifest ? [crx({ manifest })] : []),
+  ],
+  server: {
+    port: 5173,
+    strictPort: true,
+    hmr: {
+      port: 5173,
+    },
+  },
   build: {
-    outDir: resolve(rootDir, "dist"),
     emptyOutDir: true,
-
+    outDir: 'dist',
     rollupOptions: {
       input: {
-        index: resolve(rootDir, "index.html"),
-        content: resolve(rootDir, "src/content/content.js"),
-        background: resolve(rootDir, "src/background/background.js")
+        panel: 'index.html',
       },
-
-      output: {
-        entryFileNames: (chunkInfo) => {
-          if (chunkInfo.name === "index") {
-            return "popup.js";
-          }
-
-          if (chunkInfo.name === "content") {
-            return "content.js";
-          }
-
-          if (chunkInfo.name === "background") {
-            return "background.js";
-          }
-
-          return "assets/[name].js";
-        },
-
-        chunkFileNames: "assets/[name].js",
-
-        assetFileNames: (assetInfo) => {
-  if (assetInfo.name === "content.css") {
-    return "content.css";
-  }
-
-  return "assets/[name][extname]";
-}
-      }
-    }
-  }
-});
+    },
+  },
+})

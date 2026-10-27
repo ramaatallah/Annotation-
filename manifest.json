@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Wahaj Arabic Text Annotation",
+  "version": "1.0.0",
+  "description": "منصة وهج لتظليل وتحليل النصوص العربية",
+  "action": {
+    "default_popup": "index.html"
+  },
+  "permissions": ["activeTab", "storage"]
+}
