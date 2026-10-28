@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 
 const links = [
   { id: 'home', label: 'الرئيسية' },
@@ -9,10 +9,11 @@ const links = [
 ];
 
 export default function Navbar({ active = 'home', onNavigate, onLogin }) {
+  const { user, signOut } = useAuth();
+
   return (
     <header style={{ padding: '16px 0' }}>
       <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-        {/* في RTL أول عنصر يظهر يمين الصفحة: اللوغو */}
         <a href="#home" onClick={() => onNavigate?.('home')} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--navy)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 800 }}>و</div>
           <div>
@@ -38,7 +39,14 @@ export default function Navbar({ active = 'home', onNavigate, onLogin }) {
           ))}
         </nav>
 
-        <button className="btn btn-primary" onClick={onLogin}>تسجيل الدخول</button>
+        {user ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 13, color: 'var(--muted)', direction: 'ltr' }}>{user.isDemo ? 'زائر تجريبي' : user.email}</span>
+            <button className="btn btn-outline" onClick={signOut}>خروج</button>
+          </div>
+        ) : (
+          <button className="btn btn-primary" onClick={onLogin}>تسجيل الدخول</button>
+        )}
       </div>
     </header>
   );
