@@ -1,25 +1,17 @@
 import re
 from functools import lru_cache
 
-import re
 import torch
 from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
-import nltk
 from nltk.stem.isri import ISRIStemmer
 
-# Download basic NLTK data if not already present
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
-
-# Initialize Arabic root stemmer
+# مستخرج الجذور العربية (ما بحتاج تنزيل بيانات إضافية)
 stemmer = ISRIStemmer()
 
 MODEL_NAME = "hatmimoha/arabic-ner"
 
 # أقل ثقة مقبولة لعرض الكيان (عدّلوها بعد التجربة على نصوصكم)
-MIN_SCORE = 0.5
+MIN_SCORE = 0.3
 
 # طول الجزء "المملوك" بالحروف. الموديل بياخد الجزء + سياق من كل طرف،
 # يعني الطول الفعلي = MAX_CHARS + 2 * OVERLAP (لازم يظل تحت حد 512 توكن)
@@ -37,6 +29,7 @@ ENTITY_TYPE_AR = {
     "PRODUCT": "منتج",
     "COMPETITION": "مسابقة",
     "PRICE": "سعر",
+    "TERM": "مصطلح علمي",
 }
 
 SENTENCE_END = ".!؟?\n"
@@ -90,68 +83,6 @@ def split_text(text, max_chars=MAX_CHARS):
         pos = end
 
     return chunks
-def smart_merge_entities(results):
-    """
-    دمج الكلمات المتتالية والمترابطة لنفس الكيان (مثل: جامعة + النجاح + الوطنية)
-    ومنع التقطيع أو ظهور أجزاء مشوهة.
-    """
-    if not results:
-        return []
-
-    merged = []
-    current_entity = None
-
-    for entity in results:
-        raw_word = entity.get("word", "").strip()
-        # إزالة أي آثار متبقية للرموز المشوهة
-        clean_word = re.sub(r"^##", "", raw_word).strip()
-        
-        if not clean_word or clean_word in ["[CLS]", "[SEP]", "[UNK]"]:
-            continue
-
-        entity_group = entity.get("entity_group", entity.get("entity", "O"))
-        base_type = entity_group.split("-")[-1]
-        score = float(entity.get("score", 0.0))
-
-        if current_entity is None:
-            current_entity = {
-                "text": clean_word,
-                "type": base_type,
-                "scores": [score]
-            }
-        else:
-            # إذا كان الكيان الحالي والكلمة الجديدة ينتميان لنفس النوع، ندمجهما بمسافة
-            if base_type == current_entity["type"]:
-                # إذا كانت الكلمة تبدأ بـ ## أصلية ندمجها بدون مسافة، وإلا ندمج بمسافة
-                if raw_word.startswith("##"):
-                    current_entity["text"] += clean_word
-                else:
-                    current_entity["text"] += " " + clean_word
-                current_entity["scores"].append(score)
-            else:
-                # إغلاق الكيان السابق وإضافته للقائمة
-                avg_score = sum(current_entity["scores"]) / len(current_entity["scores"])
-                merged.append({
-                    "text": current_entity["text"].strip(),
-                    "type": current_entity["type"],
-                    "score": avg_score
-                })
-                # البدء بكيان جديد
-                current_entity = {
-                    "text": clean_word,
-                    "type": base_type,
-                    "scores": [score]
-                }
-
-    if current_entity:
-        avg_score = sum(current_entity["scores"]) / len(current_entity["scores"])
-        merged.append({
-            "text": current_entity["text"].strip(),
-            "type": current_entity["type"],
-            "score": avg_score
-        })
-
-    return merged
 
 
 def classify_subtype(text, entity_type):
@@ -189,54 +120,76 @@ def classify_subtype(text, entity_type):
     return None, None
 
 
-def extract_roots_for_text(text, detected_entities=None):
-    """
-    Extracts triliteral and quadriliteral roots for appropriate words,
-    while excluding detected entities (such as names, organizations, and dates).
-    """
-    if detected_entities is None:
-        detected_entities = []
+# أنواع ما منستخرج إلها جذر (تواريخ وأسعار مش كلمات لغوية)
+NO_ROOT_TYPES = {"DATE", "PRICE"}
+ARABIC_WORD = re.compile(r"[\u0621-\u064A]+")
 
-    words = nltk.word_tokenize(text)
-    processed_words = []
 
-    for word in words:
-        # If the word is a detected entity or punctuation, do not apply stemming
-        if word in detected_entities or not word.isalpha():
-            processed_words.append(word)
-        else:
-            processed_words.append(stemmer.stem(word))
+def extract_root(entity_text, entity_type):
+    """يرجّع الجذر اللغوي للكيان (لكل كلمة عربية فيه) أو None."""
+    if entity_type in NO_ROOT_TYPES:
+        return None
 
-    return " ".join(processed_words)
+    roots = [stemmer.stem(w) for w in ARABIC_WORD.findall(entity_text)]
+    roots = [r for r in roots if r]
+    return " ".join(roots) if roots else None
+
+
+# ---------- طبقة قواعد للمصطلحات العلمية (بتكمّل الموديل) ----------
+AR = r"[\u0621-\u064A]"
+TERM_PATTERNS = [
+    # فيتامين ج / فيتامين سي / فيتامين ب12
+    rf"فيتامين(?:ات)?\s+{AR}{{1,3}}\d*(?!{AR})",
+    # حمض الأسكوربيك
+    rf"حمض\s+{AR}+",
+    # مضادات الأكسدة / مضاد حيوي
+    rf"مضاد(?:ات)?\s+(?:الأكسدة|الاكسدة|حيوي(?:ة)?|الالتهاب(?:ات)?)",
+    # معادن وعناصر شائعة
+    rf"(?:عنصر|معدن)\s+{AR}{{3,}}",
+]
+TERM_RE = [re.compile(p) for p in TERM_PATTERNS]
+
+
+def apply_term_rules(text, entities):
+    """يضيف مصطلحات علمية ما لقاها الموديل، بدون ما يتداخل مع كيانات موجودة."""
+    taken = [(e["start"], e["end"]) for e in entities]
+    for rx in TERM_RE:
+        for m in rx.finditer(text):
+            start, end = m.start(), m.end()
+            if any(start < b and end > a for a, b in taken):
+                continue
+            taken.append((start, end))
+            entities.append({
+                "text": text[start:end],
+                "start": start,
+                "end": end,
+                "type": "TERM",
+                "type_ar": ENTITY_TYPE_AR["TERM"],
+                "subtype": None,
+                "subtype_ar": None,
+                "root": extract_root(text[start:end], "TERM"),
+                "confidence": 0.9,
+                "source": "rule",
+            })
+    entities.sort(key=lambda e: e["start"])
+    return entities
 
 
 def analyze_text(text):
     """
     يرجّع قائمة كيانات، كل كيان فيه:
     text, start, end (مواقع بالنص الأصلي), type, type_ar,
-    subtype, subtype_ar, confidence, source
+    subtype, subtype_ar, root, confidence, source
     """
     if not text or not text.strip():
         return []
-    ner = get_ner()
-    raw_results = ner(text)
-
-    # تطبيق خوارزمية الدمج الذكية للعبارات المترابطة
-    processed_results = smart_merge_entities(raw_results)
 
     ner = get_ner()
     entities = []
     n = len(text)
-    detected_entity_texts = []
 
     for offset, chunk in split_text(text):
         if not chunk.strip():
-    for entity in processed_results:
-        original_type = entity["type"]
-        entity_text = entity["text"].strip()
-
-        # إزالة الكلمات القصيرة جداً أو الرموز الغريبة
-        if len(entity_text) < 2:
             continue
 
         own_start = offset
@@ -268,25 +221,26 @@ def analyze_text(text):
             end -= len(raw) - len(raw.rstrip())
             entity_text = text[start:end]
 
-            if not entity_text:
+            if len(entity_text) < 2:
                 continue
 
-            original_type = entity["entity_group"]
-            subtype, subtype_ar = classify_subtype(entity_text, original_type)
+            entity_type = entity["entity_group"]
+            subtype, subtype_ar = classify_subtype(entity_text, entity_type)
 
             entities.append({
                 "text": entity_text,
                 "start": start,
                 "end": end,
-                "type": original_type,
-                "type_ar": ENTITY_TYPE_AR.get(original_type, "نوع آخر"),
+                "type": entity_type,
+                "type_ar": ENTITY_TYPE_AR.get(entity_type, "نوع آخر"),
                 "subtype": subtype,
                 "subtype_ar": subtype_ar,
+                "root": extract_root(entity_text, entity_type),
                 "confidence": round(score, 4),
                 "source": "model",
             })
 
-    return entities
+    return apply_term_rules(text, entities)
 
 
 if __name__ == "__main__":
@@ -300,29 +254,3 @@ if __name__ == "__main__":
     for e in result:
         assert sample[e["start"]:e["end"]] == e["text"], f"موقع غلط: {e}"
     print("OK: كل المواقع صحيحة")
-        detected_entity_texts.append(entity_text)
-
-        subtype, subtype_ar = classify_subtype(
-            entity_text,
-            original_type,
-        )
-
-        entities.append({
-            "text": entity_text,
-            "type": original_type,
-            "type_ar": ENTITY_TYPE_AR.get(
-                original_type, "نوع آخر"
-            ),
-            "subtype": subtype,
-            "subtype_ar": subtype_ar,
-            "confidence": round(float(entity["score"]), 4),
-            "source": "model",
-        })
-
-    # Extract roots for the text while excluding detected entities to improve search results
-    processed_text_with_roots = extract_roots_for_text(text, detected_entity_texts)
-
-    return {
-        "entities": entities,
-        "processed_text": processed_text_with_roots
-    }
