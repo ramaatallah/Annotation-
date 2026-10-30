@@ -3,6 +3,7 @@ import Navbar from '../components/Navbar';
 import Hero from '../components/Hero';
 import HowItWorks from '../components/HowItWorks';
 import Features from '../components/Features';
+import TryPage from './TryPage';
 
 export default function HomePage() {
   const [page, setPage] = useState('home');
@@ -11,9 +12,15 @@ export default function HomePage() {
     <>
       <Navbar active={page} onNavigate={setPage} onLogin={() => alert('TODO: نافذة تسجيل الدخول (Supabase)')} />
       <main>
-        <Hero onTry={() => setPage('try')} />
-        <HowItWorks />
-        <Features />
+        {page === 'try' ? (
+          <TryPage />
+        ) : (
+          <>
+            <Hero onTry={() => setPage('try')} />
+            <HowItWorks />
+            <Features />
+          </>
+        )}
       </main>
     </>
   );
