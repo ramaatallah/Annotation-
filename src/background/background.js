@@ -1,108 +1,151 @@
 import { supabase } from "../shared/supabase.js";
 
-// عنوان خدمة التحليل (NER). غيّريه هون بس إذا تغيّر (مثلاً رابط ngrok).
-const ANALYZE_API_URL = "http://127.0.0.1:8000/analyze";
+// Backend API Base URL (configurable, public endpoint)
+const API_BASE = "http://127.0.0.1:8000";
 
+/**
+ * Executes an authenticated fetch request to the Annotation Backend API.
+ * Attaches the Supabase JWT access token in the Authorization header.
+ */
+async function authedFetch(path, options = {}) {
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data.session?.access_token) {
+    throw new Error("سجّل الدخول أولاً للمتابعة.");
+  }
+
+  const token = data.session.access_token;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+
+  try {
+    const url = `${API_BASE}${path}`;
+    const res = await fetch(url, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(options.headers || {}),
+      },
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      let errMsg = `API error (${res.status})`;
+      try {
+        const errJson = await res.json();
+        errMsg = errJson.detail || errMsg;
+      } catch (_) {}
+      throw new Error(errMsg);
+    }
+
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Retrieves the current authenticated user.
+ */
 async function getCurrentUser() {
   const { data, error } = await supabase.auth.getUser();
-
   if (error || !data.user) {
     throw new Error("المستخدم غير مسجل الدخول إلى Supabase");
   }
-
   return data.user;
 }
 
-async function getOrCreatePage(userId, url, title) {
-  const normalizedUrl = new URL(url);
-  normalizedUrl.hash = "";
-  normalizedUrl.search = "";
+/**
+ * Text Analysis (NER & Roots via CAMeL Tools):
+ * Calls backend /v1/analyze. Zero LLM keys or root rules exist on the client.
+ */
+async function analyzeText(message) {
+  const text = (message.text || "").trim();
+  if (!text) return [];
 
-  const pageUrl = normalizedUrl.href;
+  try {
+    const response = await authedFetch("/v1/analyze", {
+      method: "POST",
+      body: JSON.stringify({
+        text,
+        page_url: message.url || "",
+        title: message.title || "",
+      }),
+    });
 
-  const { data: existingPage, error: searchError } = await supabase
-    .from("pages")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("normalized_url", pageUrl)
-    .maybeSingle();
+    const entities = response.entities || [];
+    // Map to extension format expected by content scripts
+    return entities.map((e) => {
+      // Find primary root from CAMeL Tools disambiguation
+      let primaryRoot = null;
+      for (const w of e.words || []) {
+        if (w.status === "found" && w.root) {
+          primaryRoot = w.root;
+          break;
+        }
+      }
 
-  if (searchError) throw searchError;
-  if (existingPage) return existingPage.id;
+      // Multi-word roots representation for UI
+      const wordRoots = (e.words || [])
+        .filter((w) => w.status === "found" && w.root)
+        .map((w) => ({ word: w.word, root: w.root }));
 
-  const { data: newPage, error: insertError } = await supabase
-    .from("pages")
-    .insert({
-      user_id: userId,
-      url,
-      normalized_url: pageUrl,
-      title: title || "",
-      domain: normalizedUrl.hostname,
-    })
-    .select("id")
-    .single();
-
-  if (insertError) throw insertError;
-
-  return newPage.id;
+      return {
+        ...e,
+        root: primaryRoot,
+        words: e.words || [],
+        word_roots: wordRoots,
+        confidence: e.llm_self_confidence || e.bert_score || 0.95,
+      };
+    });
+  } catch (err) {
+    console.error("[Extension NER] Backend analyze failed:", err);
+    throw err;
+  }
 }
 
+/**
+ * Saves annotation and all linked entities atomically via the backend API.
+ */
 async function saveAnnotation(message) {
-  const user = await getCurrentUser();
-
-  const pageId = await getOrCreatePage(
-    user.id,
-    message.url,
-    message.title
-  );
-
-  const { error } = await supabase.from("annotations").upsert({
-    id: message.id,
-    user_id: user.id,
-    page_id: pageId,
-    selected_text: message.text,
-    note: message.note,
-    context_before: message.contextBefore || "",
-    context_after: message.contextAfter || "",
-    anchor_data: { groupId: message.id },
+  return await authedFetch("/v1/annotations", {
+    method: "POST",
+    body: JSON.stringify({
+      id: message.id,
+      url: message.url,
+      title: message.title || "",
+      text: message.text,
+      note: message.note || "",
+      contextBefore: message.contextBefore || "",
+      contextAfter: message.contextAfter || "",
+    }),
   });
-
-  if (error) throw error;
-
-  return { id: message.id };
 }
 
+/**
+ * Updates annotation note atomically via the backend API.
+ */
 async function updateAnnotation(message) {
-  const user = await getCurrentUser();
-
-  const { error } = await supabase
-    .from("annotations")
-    .update({
-      note: message.note,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", message.id)
-    .eq("user_id", user.id);
-
-  if (error) throw error;
-
-  return { id: message.id };
+  return await authedFetch(`/v1/annotations/${message.id}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      note: message.note || "",
+    }),
+  });
 }
 
+/**
+ * Deletes user annotation atomically via the backend API.
+ */
 async function deleteAnnotation(message) {
-  const user = await getCurrentUser();
-
-  const { error } = await supabase
-    .from("annotations")
-    .delete()
-    .eq("id", message.id)
-    .eq("user_id", user.id);
-
-  if (error) throw error;
-
-  return { id: message.id };
+  return await authedFetch(`/v1/annotations/${message.id}`, {
+    method: "DELETE",
+  });
 }
 
+/**
+ * Loads annotations for the current page under Supabase RLS.
+ */
 async function getPageAnnotations(message) {
   const user = await getCurrentUser();
 
@@ -121,79 +164,116 @@ async function getPageAnnotations(message) {
   if (pageError) throw pageError;
   if (!page) return [];
 
-  const { data, error } = await supabase
+  // Query annotations
+  const { data: annotations, error: annError } = await supabase
     .from("annotations")
     .select("id, selected_text, note")
     .eq("user_id", user.id)
     .eq("page_id", page.id);
 
-  if (error) throw error;
+  if (annError) throw annError;
+  if (!annotations || annotations.length === 0) return [];
 
-  return (data || []).map((annotation) => ({
-    id: annotation.id,
-    text: annotation.selected_text,
-    note: annotation.note || "",
+  const annotationIds = annotations.map((a) => a.id);
+
+  // Query linked annotation entities with word snapshots
+  const { data: links, error: linkErr } = await supabase
+    .from("annotation_entities")
+    .select("annotation_id, entity_id, start_offset, end_offset, source, words_snapshot, kb_entities(entity_text, entity_type, entity_type_ar, domain)")
+    .in("annotation_id", annotationIds);
+
+  if (linkErr) {
+    console.warn("Error fetching annotation_entities:", linkErr);
+  }
+
+  const linksByAnnId = {};
+  for (const l of links || []) {
+    if (!linksByAnnId[l.annotation_id]) {
+      linksByAnnId[l.annotation_id] = [];
+    }
+    const kb = l.kb_entities || {};
+    const wordsSnap = l.words_snapshot || [];
+    const wordRoots = wordsSnap
+      .filter((w) => w.status === "found" && w.root)
+      .map((w) => ({ word: w.word, root: w.root }));
+    const primaryRoot = wordRoots.length > 0 ? wordRoots[0].root : null;
+
+    linksByAnnId[l.annotation_id].push({
+      text: kb.entity_text,
+      type: kb.entity_type,
+      type_ar: kb.entity_type_ar,
+      domain: kb.domain,
+      start_offset: l.start_offset,
+      end_offset: l.end_offset,
+      source: l.source,
+      root: primaryRoot,
+      words: wordsSnap,
+      word_roots: wordRoots,
+    });
+  }
+
+  return annotations.map((a) => ({
+    id: a.id,
+    text: a.selected_text,
+    note: a.note || "",
+    entities: linksByAnnId[a.id] || [],
   }));
 }
 
-// تحليل النص (NER) عبر الـ background بدل الـ content script
-async function analyzeText(message) {
-  if (typeof message.text !== "string" || !message.text.trim()) {
-    return [];
-  }
-
-  const response = await fetch(ANALYZE_API_URL, {
+/**
+ * Researcher feedback correction submission.
+ */
+async function submitCorrection(message) {
+  return await authedFetch("/v1/corrections", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: message.text }),
+    body: JSON.stringify({
+      annotation_entity_id: message.annotationEntityId,
+      field: message.field,
+      old_value: message.oldValue,
+      new_value: message.newValue,
+    }),
   });
-
-  if (!response.ok) {
-    throw new Error(`API error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  return data.entities || [];
 }
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type === "SUPABASE_ANONYMOUS_SIGN_IN") {
-    supabase.auth.signInAnonymously()
-      .then(({ data, error }) => {
-        if (error) throw error;
-
-        sendResponse({
-          success: true,
-          userId: data.user?.id ?? null,
-        });
-      })
-      .catch((error) => {
-        sendResponse({
-          success: false,
-          error: error.message || "Unknown Supabase error",
-        });
-      });
-
-    return true;
+/**
+ * Handles anonymous or session sign-in test from popup.
+ */
+async function anonymousSignIn() {
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (sessionData?.session?.user?.id) {
+    return { userId: sessionData.session.user.id };
   }
 
+  const { data, error } = await supabase.auth.signInAnonymously();
+  if (error) throw error;
+  return { userId: data.user?.id };
+}
+
+// Chrome message listener
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const actions = {
+    ANALYZE_TEXT: analyzeText,
     SUPABASE_SAVE_ANNOTATION: saveAnnotation,
     SUPABASE_UPDATE_ANNOTATION: updateAnnotation,
     SUPABASE_DELETE_ANNOTATION: deleteAnnotation,
     SUPABASE_GET_ANNOTATIONS: getPageAnnotations,
-    ANALYZE_TEXT: analyzeText,
+    SUBMIT_CORRECTION: submitCorrection,
+    SUPABASE_ANONYMOUS_SIGN_IN: anonymousSignIn,
   };
 
   const action = actions[message?.type];
-
-  if (!action) return;
+  if (!action) {
+    sendResponse({
+      success: false,
+      error: `Unsupported message type: ${message?.type}`,
+    });
+    return false;
+  }
 
   action(message)
-    .then((data) => sendResponse({ success: true, data }))
+    .then((data) => sendResponse({ success: true, ...data, data }))
     .catch((error) => {
       console.error("Background action error:", message?.type, error);
-
       sendResponse({
         success: false,
         error: error.message || "Unknown error",

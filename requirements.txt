@@ -38,3 +38,5 @@ urllib3==2.6.3
 uvicorn==0.39.0
 watchfiles==1.1.1
 websockets==15.0.1
+
+camel-tools>=1.5.2
