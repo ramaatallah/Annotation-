@@ -22,8 +22,16 @@ export function AuthProvider({ children }) {
 
   async function signIn(email, password) {
     if (!supabaseReady) throw new Error('إعدادات Supabase غير موجودة (تحققي من ملف .env.local)');
+
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw new Error('البريد الإلكتروني أو كلمة المرور غير صحيحة');
+    if (error) {
+      console.error('Supabase auth error:', error.status, error.code, error.message);
+      const map = {
+        invalid_credentials: 'بيانات الدخول غير صحيحة، أو الحساب غير موجود بمشروع Supabase هذا',
+        email_not_confirmed: 'لم يتم تأكيد البريد الإلكتروني بعد، افتحي رسالة التأكيد',
+      };
+      throw new Error(map[error.code] ?? error.message);
+    }
   }
 
   function signInDemo() {
