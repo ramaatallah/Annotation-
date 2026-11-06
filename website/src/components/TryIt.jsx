@@ -1,11 +1,19 @@
 import { useMemo, useState } from 'react';
 import { analyzeText } from '../services/analyze';
 
+// المفاتيح = أسماء الأنواع اللي بيرجّعها الباك إند (api/ner.py)
 const LABELS = {
-  PER: { name: 'شخص', bg: '#e9d9ff', fg: '#6a2bb5' },
-  LOC: { name: 'مكان', bg: '#d8f5e0', fg: '#1d7a3a' },
-  ORG: { name: 'مؤسسة', bg: '#dbe7ff', fg: '#2f4482' },
+  PERSON: { name: 'شخص', bg: '#e9d9ff', fg: '#6a2bb5' },
+  LOCATION: { name: 'مكان', bg: '#d8f5e0', fg: '#1d7a3a' },
+  ORGANIZATION: { name: 'مؤسسة', bg: '#dbe7ff', fg: '#2f4482' },
+  DISEASE: { name: 'مرض', bg: '#ffe0e0', fg: '#a12a2a' },
+  DATE: { name: 'تاريخ', bg: '#ffeccc', fg: '#8a5a00' },
+  EVENT: { name: 'حدث', bg: '#d6f3f5', fg: '#15737c' },
+  PRODUCT: { name: 'منتج', bg: '#f3e1f0', fg: '#8a2c7d' },
+  COMPETITION: { name: 'مسابقة', bg: '#e4f0d0', fg: '#4a6b1a' },
+  PRICE: { name: 'سعر', bg: '#f0ead6', fg: '#6b5a1a' },
 };
+const LEGEND = ['PERSON', 'LOCATION', 'ORGANIZATION'];
 const FALLBACK = { name: 'أخرى', bg: '#eee', fg: '#444' };
 const info = (label) => LABELS[label] ?? FALLBACK;
 
@@ -98,7 +106,7 @@ export default function TryIt() {
 
           <div style={card}>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12, fontSize: 13 }}>
-              {Object.values(LABELS).map((v) => (
+              {LEGEND.map((k) => LABELS[k]).map((v) => (
                 <span key={v.name} style={{ background: v.bg, color: v.fg, padding: '2px 10px', borderRadius: 6, fontWeight: 700 }}>{v.name}</span>
               ))}
             </div>
