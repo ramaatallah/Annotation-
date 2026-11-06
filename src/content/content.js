@@ -168,73 +168,67 @@ function showNotePopup(range, highlightedNodes, selectedText) {
       return;
     }
 
-    // تحليل النص الآن للحصول على الكيانات (مع الجذور)
+    // حفظ فوري محلياً وإغلاق النافذة المنبثقة بدون أي تأخير
+    highlightedNodes.forEach((node) => {
+      node.dataset.annotationNote = note;
+      node.dataset.annotationText = selectedText;
+      attachTooltip(node);
+    });
+
+    const groupId = highlightedNodes[0].dataset.annotationGroup;
+    const firstHighlight = highlightedNodes[0];
+    const lastHighlight = highlightedNodes[highlightedNodes.length - 1];
+
+    const contextBefore = firstHighlight
+      ? firstHighlight.parentElement?.textContent?.slice(0, 100) || ""
+      : "";
+    const contextAfter = lastHighlight
+      ? lastHighlight.parentElement?.textContent?.slice(-100) || ""
+      : "";
+
+    saveAnnotationRecord(
+      groupId,
+      selectedText,
+      note,
+      contextBefore,
+      contextAfter
+    );
+
+    popup.remove();
+
+    // استخراج الكيانات وحفظها في الخلفية
     let entities = [];
     try {
       entities = await analyzeText(selectedText);
     } catch (err) {
-      console.warn("تعذر تحليل الكيانات (تأكد من تشغيل خادم NER على 127.0.0.1:8000):", err);
+      console.warn("تعذر تحليل الكيانات:", err);
     }
 
-  // حفظ البيانات مؤقتاً في chrome.storage كالعادة
-  highlightedNodes.forEach((node) => {
-    node.dataset.annotationNote = note;
-    node.dataset.annotationText = selectedText;
-    attachTooltip(node);
+    chrome.runtime.sendMessage(
+      {
+        type: "SUPABASE_SAVE_ANNOTATION",
+        id: groupId,
+        text: selectedText,
+        note,
+        url: location.href,
+        title: document.title,
+        contextBefore,
+        contextAfter,
+        entities,
+      },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          console.error("Supabase save error:", chrome.runtime.lastError.message);
+          return;
+        }
+        if (!response?.success) {
+          console.error("Supabase save error:", response?.error);
+          return;
+        }
+        console.log("Annotation saved to Supabase:", response.data);
+      }
+    );
   });
-
-  const groupId = highlightedNodes[0].dataset.annotationGroup;
-  const firstHighlight = highlightedNodes[0];
-  const lastHighlight = highlightedNodes[highlightedNodes.length - 1];
-
-  const contextBefore = firstHighlight
-    ? firstHighlight.parentElement?.textContent?.slice(0, 100) || ""
-    : "";
-  const contextAfter = lastHighlight
-    ? lastHighlight.parentElement?.textContent?.slice(-100) || ""
-    : "";
-
-  // حفظ مؤقت في التخزين المحلي
-  saveAnnotationRecord(
-    groupId,
-    selectedText,
-    note,
-    contextBefore,
-    contextAfter
-  );
-
-  // إرسالة إلى الخلفية مع الكيانات
-  chrome.runtime.sendMessage(
-    {
-      type: "SUPABASE_SAVE_ANNOTATION",
-      id: groupId,
-      text: selectedText,
-      note,
-      url: location.href,
-      title: document.title,
-      contextBefore,
-      contextAfter,
-      entities, // تضمين الكيانات
-    },
-    (response) => {
-      if (chrome.runtime.lastError) {
-        console.error(
-          "Supabase save error:",
-          chrome.runtime.lastError.message
-        );
-        return;
-      }
-      if (!response?.success) {
-        console.error("Supabase save error:", response?.error);
-        return;
-      }
-      console.log("Annotation saved to Supabase:", response.data);
-    }
-  );
-
-  console.log("Annotation saved temporarily:", { text: selectedText, note, entities });
-  popup.remove();
-});
 
   cancelButton.addEventListener("click", () => {
     highlightedNodes.forEach((node) => {
@@ -1090,9 +1084,10 @@ function analyzeText(text) {
         return;
       }
 
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
-    }
+    if (!response?.success) {
+        reject(new Error(response?.error || "Analysis failed"));
+        return;
+      }
 
       const data = response.data || [];
       clientAnalysisCache.set(clean, data);
