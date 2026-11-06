@@ -1,17 +1,10 @@
 {
+  "name": "wahaj-extension",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Wahaj Chrome Extension (Load directly unpacked in chrome://extensions)",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.117.3",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
-    "react-router-dom": "^7.18.4"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^6.1.2",
-    "vite": "^8.3.3"
+    "build": "echo Extension is ready to load unpacked directly from extension/",
+    "dev": "echo Extension ready for development"
   }
 }
