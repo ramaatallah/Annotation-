@@ -3,26 +3,21 @@
   "name": "Annotation",
   "version": "1.0.0",
   "description": "Web annotation extension",
-
   "permissions": [
     "storage"
   ],
-
   "host_permissions": [
     "<all_urls>",
     "http://127.0.0.1:8000/*"
   ],
-
   "action": {
     "default_title": "Annotation",
     "default_popup": "index.html"
   },
-
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
-
   "content_scripts": [
     {
       "matches": ["<all_urls>"],

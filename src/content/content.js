@@ -21,6 +21,11 @@ chrome.storage.onChanged.addListener((changes) => {
 console.log("Annotation content script loaded");
 restoreSavedAnnotations();
 
+window.addEventListener("load", () => {
+  setTimeout(restoreSavedAnnotations, 500);
+});
+setTimeout(restoreSavedAnnotations, 1500);
+
 document.addEventListener("mouseup", () => {
   if (!annotationEnabled) {
     return;
@@ -156,64 +161,80 @@ function showNotePopup(range, highlightedNodes, selectedText) {
 
   textarea.focus();
 
-  saveButton.addEventListener("click", () => {
+  saveButton.addEventListener("click", async () => {
     const note = textarea.value.trim();
-
     if (!note) {
       textarea.focus();
       return;
     }
 
-    highlightedNodes.forEach((node) => {
-      node.dataset.annotationNote = note;
-      node.dataset.annotationText = selectedText;
+    // تحليل النص الآن للحصول على الكيانات (مع الجذور)
+    let entities = [];
+    try {
+      entities = await analyzeText(selectedText);
+    } catch (err) {
+      console.warn("تعذر تحليل الكيانات (تأكد من تشغيل خادم NER على 127.0.0.1:8000):", err);
+    }
 
-      attachTooltip(node);
-    });
-
-    const groupId = highlightedNodes[0].dataset.annotationGroup;
-    const firstHighlight = highlightedNodes[0];
-    const lastHighlight = highlightedNodes[highlightedNodes.length - 1];
-
-    const contextBefore = firstHighlight
-      ? firstHighlight.parentElement?.textContent?.slice(0, 100) || ""
-      : "";
-
-    const contextAfter = lastHighlight
-      ? lastHighlight.parentElement?.textContent?.slice(-100) || ""
-      : "";
-
-    chrome.runtime.sendMessage(
-      {
-        type: "SUPABASE_SAVE_ANNOTATION",
-        id: groupId,
-        text: selectedText,
-        note,
-        url: location.href,
-        title: document.title,
-        contextBefore,
-        contextAfter,
-      },
-      (response) => {
-        if (chrome.runtime.lastError) {
-          console.error(
-            "Supabase save error:",
-            chrome.runtime.lastError.message
-          );
-          return;
-        }
-
-        if (!response?.success) {
-          console.error("Supabase save error:", response?.error);
-          return;
-        }
-
-        console.log("Annotation saved to Supabase:", response.data);
-      }
-    );
-
-    popup.remove();
+  // حفظ البيانات مؤقتاً في chrome.storage كالعادة
+  highlightedNodes.forEach((node) => {
+    node.dataset.annotationNote = note;
+    node.dataset.annotationText = selectedText;
+    attachTooltip(node);
   });
+
+  const groupId = highlightedNodes[0].dataset.annotationGroup;
+  const firstHighlight = highlightedNodes[0];
+  const lastHighlight = highlightedNodes[highlightedNodes.length - 1];
+
+  const contextBefore = firstHighlight
+    ? firstHighlight.parentElement?.textContent?.slice(0, 100) || ""
+    : "";
+  const contextAfter = lastHighlight
+    ? lastHighlight.parentElement?.textContent?.slice(-100) || ""
+    : "";
+
+  // حفظ مؤقت في التخزين المحلي
+  saveAnnotationRecord(
+    groupId,
+    selectedText,
+    note,
+    contextBefore,
+    contextAfter
+  );
+
+  // إرسالة إلى الخلفية مع الكيانات
+  chrome.runtime.sendMessage(
+    {
+      type: "SUPABASE_SAVE_ANNOTATION",
+      id: groupId,
+      text: selectedText,
+      note,
+      url: location.href,
+      title: document.title,
+      contextBefore,
+      contextAfter,
+      entities, // تضمين الكيانات
+    },
+    (response) => {
+      if (chrome.runtime.lastError) {
+        console.error(
+          "Supabase save error:",
+          chrome.runtime.lastError.message
+        );
+        return;
+      }
+      if (!response?.success) {
+        console.error("Supabase save error:", response?.error);
+        return;
+      }
+      console.log("Annotation saved to Supabase:", response.data);
+    }
+  );
+
+  console.log("Annotation saved temporarily:", { text: selectedText, note, entities });
+  popup.remove();
+});
 
   cancelButton.addEventListener("click", () => {
     highlightedNodes.forEach((node) => {
@@ -276,8 +297,6 @@ function removeExistingNotePopup() {
 
 function attachTooltip(highlightNode) {
   highlightNode.addEventListener("mouseenter", () => {
-    if (!annotationEnabled) return; // منع عرض الـ Tooltip إذا كانت الإضافة متوقفة
-    
     const note = highlightNode.dataset.annotationNote;
     const selectedText = highlightNode.dataset.annotationText;
 
@@ -304,7 +323,7 @@ function attachTooltip(highlightNode) {
 }
 
 /* ------------------------------------------------------------------
-    عرض الكيانات: ألوان حسب النوع + بطاقة لكل كيان
+   عرض الكيانات: ألوان حسب النوع + بطاقة لكل كيان
 ------------------------------------------------------------------ */
 
 const ENTITY_COLORS = {
@@ -313,8 +332,10 @@ const ENTITY_COLORS = {
   ORGANIZATION: "#9333ea",
   DATE: "#ea580c",
   DISEASE: "#dc2626",
-  EVENT: "#0891b2",
-  PRODUCT: "#ca8a04",
+  EVENT: "#d97706",
+  PRODUCT: "#0284c7",
+  ANATOMY: "#0891b2",
+  TECHNOLOGY: "#0d9488",
   COMPETITION: "#db2777",
   PRICE: "#475569",
 };
@@ -349,6 +370,20 @@ function renderEntities(container, entities) {
     badge.textContent = entity.type_ar || entity.type;
 
     top.append(name, badge);
+
+    if (entity.occurrences && entity.occurrences > 1) {
+      const countBadge = document.createElement("span");
+      countBadge.className = "annotation-entity-count";
+      countBadge.style.fontSize = "11px";
+      countBadge.style.background = "#f1f5f9";
+      countBadge.style.color = "#64748b";
+      countBadge.style.padding = "1px 6px";
+      countBadge.style.borderRadius = "10px";
+      countBadge.style.marginRight = "6px";
+      countBadge.textContent = "تكرر " + entity.occurrences + " مرات";
+      top.appendChild(countBadge);
+    }
+
     item.appendChild(top);
 
     if (entity.subtype_ar) {
@@ -358,6 +393,51 @@ function renderEntities(container, entities) {
       item.appendChild(subtype);
     }
 
+    // عرض الجذور (CAMeL Tools)
+    if (Array.isArray(entity.word_roots) && entity.word_roots.length > 1) {
+      const rootsBox = document.createElement("div");
+      rootsBox.className = "annotation-entity-roots";
+      rootsBox.style.fontSize = "12px";
+      rootsBox.style.color = "#475569";
+      rootsBox.style.marginTop = "6px";
+      rootsBox.style.lineHeight = "1.6";
+
+      const title = document.createElement("span");
+      title.style.fontWeight = "bold";
+      title.textContent = "الجذور: ";
+      rootsBox.appendChild(title);
+
+      entity.word_roots.forEach((item, idx) => {
+        if (idx > 0) {
+          const sep = document.createElement("span");
+          sep.textContent = " • ";
+          sep.style.color = "#94a3b8";
+          sep.style.margin = "0 5px";
+          rootsBox.appendChild(sep);
+        }
+
+        const span = document.createElement("span");
+        span.style.background = "#f1f5f9";
+        span.style.border = "1px solid #e2e8f0";
+        span.style.padding = "2px 6px";
+        span.style.borderRadius = "4px";
+        span.style.display = "inline-block";
+        span.textContent = item.word + ": " + item.root;
+        rootsBox.appendChild(span);
+      });
+
+      item.appendChild(rootsBox);
+    } else if (typeof entity.root === "string" && entity.root.trim()) {
+      const rootEl = document.createElement("div");
+      rootEl.className = "annotation-entity-root";
+      rootEl.textContent = `الجذر: ${entity.root}`;
+      rootEl.style.fontSize = "12px";
+      rootEl.style.color = "#475569";
+      rootEl.style.marginTop = "4px";
+      item.appendChild(rootEl);
+    }
+
+    // درجة الثقة: شريط + نسبة
     if (typeof entity.confidence === "number") {
       const percent = Math.round(entity.confidence * 100);
 
@@ -522,7 +602,7 @@ function showEditNotePopup(highlightNode, selectedText, currentNote) {
   textarea.value = currentNote;
   textarea.focus();
 
-  saveButton.addEventListener("click", () => {
+  saveButton.addEventListener("click", async () => {
     const newNote = textarea.value.trim();
 
     if (!newNote) {
@@ -531,6 +611,14 @@ function showEditNotePopup(highlightNode, selectedText, currentNote) {
     }
 
     const groupId = highlightNode.dataset.annotationGroup;
+
+    // تحليل النص للحصول على الكيانات (مع الجذور)
+    let entities = [];
+    try {
+      entities = await analyzeText(selectedText);
+    } catch (err) {
+      console.warn("تعذر تحليل الكيانات عند التعديل:", err);
+    }
 
     document.querySelectorAll(".annotation-highlight").forEach((node) => {
       if (node.dataset.annotationGroup === groupId) {
@@ -543,6 +631,7 @@ function showEditNotePopup(highlightNode, selectedText, currentNote) {
         type: "SUPABASE_UPDATE_ANNOTATION",
         id: groupId,
         note: newNote,
+        entities, // تضمين الكيانات
       },
       (response) => {
         if (chrome.runtime.lastError) {
@@ -709,31 +798,109 @@ function removeHighlight(highlightNode) {
   console.log("Complete highlight group removed");
 }
 
+function getPageStorageKey(url = location.href) {
+  try {
+    const u = new URL(url);
+    u.hash = "";
+    u.search = "";
+    return `annotations:${u.href}`;
+  } catch {
+    return `annotations:${url}`;
+  }
+}
+
 function getPageAnnotations(callback) {
-  chrome.runtime.sendMessage(
-    {
-      type: "SUPABASE_GET_ANNOTATIONS",
-      url: location.href,
-    },
-    (response) => {
-      if (chrome.runtime.lastError) {
-        console.error(
-          "Supabase fetch error:",
-          chrome.runtime.lastError.message
-        );
-        callback([]);
-        return;
-      }
+  const key = getPageStorageKey();
 
-      if (!response?.success) {
-        console.error("Supabase fetch error:", response?.error);
-        callback([]);
-        return;
-      }
+  chrome.storage.local.get([key], (storageRes) => {
+    const localData = Array.isArray(storageRes[key]) ? storageRes[key] : [];
 
-      callback(response.data || []);
+    // Immediately restore from local storage so highlighting renders without delay
+    if (localData.length > 0) {
+      callback(localData);
     }
-  );
+
+    // Sync with Supabase in background
+    chrome.runtime.sendMessage(
+      {
+        type: "SUPABASE_GET_ANNOTATIONS",
+        url: location.href,
+      },
+      (response) => {
+        if (
+          !chrome.runtime.lastError &&
+          response?.success &&
+          Array.isArray(response.data) &&
+          response.data.length > 0
+        ) {
+          // Merge local & remote annotations
+          const map = new Map();
+          localData.forEach((item) => map.set(item.id, item));
+          response.data.forEach((item) => map.set(item.id, item));
+          const merged = Array.from(map.values());
+          savePageAnnotations(merged);
+          callback(merged);
+        } else if (localData.length === 0) {
+          callback([]);
+        }
+      }
+    );
+  });
+}
+
+function savePageAnnotations(annotations, callback = () => {}) {
+  const key = getPageStorageKey();
+
+  chrome.storage.local.set({ [key]: annotations }, callback);
+}
+
+function saveAnnotationRecord(
+  groupId,
+  text,
+  note,
+  contextBefore = "",
+  contextAfter = ""
+) {
+  const key = getPageStorageKey();
+  chrome.storage.local.get([key], (storageRes) => {
+    const localData = Array.isArray(storageRes[key]) ? storageRes[key] : [];
+    const updated = localData.filter((item) => item.id !== groupId);
+
+    updated.push({
+      id: groupId,
+      text,
+      note,
+      url: location.href,
+      contextBefore,
+      contextAfter,
+    });
+
+    savePageAnnotations(updated, () => {
+      console.log("Annotation stored successfully locally");
+    });
+  });
+}
+
+function updateAnnotationRecord(groupId, newNote) {
+  const key = getPageStorageKey();
+  chrome.storage.local.get([key], (storageRes) => {
+    const localData = Array.isArray(storageRes[key]) ? storageRes[key] : [];
+    const updated = localData.map((item) =>
+      item.id === groupId ? { ...item, note: newNote } : item
+    );
+
+    savePageAnnotations(updated);
+  });
+}
+
+function deleteAnnotationRecord(groupId) {
+  const key = getPageStorageKey();
+  chrome.storage.local.get([key], (storageRes) => {
+    const localData = Array.isArray(storageRes[key]) ? storageRes[key] : [];
+    const updated = localData.filter((item) => item.id !== groupId);
+
+    savePageAnnotations(updated);
+  });
 }
 
 function findTextRange(searchText) {
@@ -788,7 +955,8 @@ function findTextRange(searchText) {
     for (let i = 0; i < value.length; i++) {
       const char = value[i];
 
-      if (/[\s\p{P}\p{S}]/u.test(char)) {
+      // تجاهل المسافات وعلامات الترقيم والتشكيل والتطويل في البحث.
+      if (/[\s\p{P}\p{S}\u0640\u064B-\u0652\u0670]/u.test(char)) {
         continue;
       }
 
@@ -900,46 +1068,35 @@ function restoreSavedAnnotations() {
   });
 }
 
-async function analyzeText(text) {
-  try {
-    const response = await fetch("http://127.0.0.1:8000/analyze", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({ text }),
-    });
+const clientAnalysisCache = new Map();
+
+function analyzeText(text) {
+  const clean = (text || "").trim();
+  if (!clean) return Promise.resolve([]);
+
+  if (clientAnalysisCache.has(clean)) {
+    return Promise.resolve(clientAnalysisCache.get(clean));
+  }
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error("انتهت مهلة انتظار خادم التحليل"));
+    }, 12000);
+
+    chrome.runtime.sendMessage({ type: "ANALYZE_TEXT", text: clean }, (response) => {
+      clearTimeout(timer);
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
 
     if (!response.ok) {
       throw new Error(`API error: ${response.status}`);
     }
 
-      resolve(response.data);
+      const data = response.data || [];
+      clientAnalysisCache.set(clean, data);
+      resolve(data);
     });
   });
-}
-
-// كاش للتحليل: نفس النص ما بنرسله للسيرفر أكتر من مرة.
-// بنخزّن الـ Promise نفسه، فإذا صار أكتر من hover بنفس الوقت بيشاركوا طلب واحد.
-const entityCache = new Map();
-
-function analyzeTextCached(text) {
-  if (!entityCache.has(text)) {
-    const promise = analyzeText(text).catch((error) => {
-      entityCache.delete(text); // لا نخزّن الفشل، عشان يعيد المحاولة
-      throw error;
-    });
-
-    entityCache.set(text, promise);
-  }
-
-  return entityCache.get(text);
-}
-    const data = await response.json();
-    return data.entities || [];
-  } catch (error) {
-    console.error("Entity analysis error:", error);
-    throw error;
-  }
 }

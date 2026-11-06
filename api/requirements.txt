@@ -1,5 +1,14 @@
-
 fastapi
 uvicorn[standard]
+pydantic
+pydantic-settings
+httpx
 transformers
 torch
+camel-tools
+sinatools
+qalsadi
+tashaphyne
+pyarabic
+nltk
+PyJWT
