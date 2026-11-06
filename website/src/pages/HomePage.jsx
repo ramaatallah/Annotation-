@@ -1,62 +1,58 @@
+
 import { useState } from 'react';
+
 import Navbar from '../components/Navbar';
 import Hero from '../components/Hero';
 import TryIt from '../components/TryIt';
 import HowItWorks from '../components/HowItWorks';
 import Features from '../components/Features';
 import About from '../components/About';
-
-const scrollToHow = () => setTimeout(() => document.getElementById('how')?.scrollIntoView({ behavior: 'smooth' }), 0);
 import LoginModal from '../components/LoginModal';
+
 import LibraryPage from './LibraryPage';
 import HowItWorksPage from './HowItWorksPage';
 
 export default function HomePage() {
   const [page, setPage] = useState('home');
   const [loginOpen, setLoginOpen] = useState(false);
+
   const openLogin = () => setLoginOpen(true);
 
-  // "how" قسم داخل الصفحة الرئيسية، والباقي صفحات تتبدّل
   const goTo = (id) => {
     setPage(id);
-    if (id === 'how') scrollToHow();
-    else window.scrollTo({ top: 0 });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
-
-  const showHome = ['home', 'how'].includes(page);
 
   return (
     <>
-      <Navbar active={page} onNavigate={goTo} onLogin={() => alert('TODO: نافذة تسجيل الدخول (Supabase)')} />
+      <Navbar
+        active={page}
+        onNavigate={goTo}
+        onLogin={openLogin}
+      />
+
       <main>
-        {showHome && (
-          <>
-            <Hero onTry={() => goTo('try')} />
-      <Navbar active={page} onNavigate={setPage} onLogin={openLogin} />
-      <main>
-      {page === 'library' ? (
+        {page === 'library' ? (
           <LibraryPage onLogin={openLogin} />
         ) : page === 'how' ? (
           <HowItWorksPage />
         ) : page === 'try' ? (
-          <p className="container" style={{ padding: 60, textAlign: 'center' }}>صفحة «جرّب الآن» قيد العمل (سيرين) 🛠️</p>
+          <TryIt />
+        ) : page === 'about' ? (
+          <About />
         ) : (
           <>
-            <Hero onTry={() => setPage('try')} />
+            <Hero onTry={() => goTo('try')} />
             <HowItWorks />
             <Features />
           </>
         )}
-        {page === 'try' && <TryIt />}
-        {page === 'about' && <About />}
-        {page === 'library' && (
-          <section className="container" style={{ padding: '80px 20px', textAlign: 'center', color: 'var(--muted)' }}>
-            <h2 style={{ color: 'var(--ink)', fontSize: 32 }}>مكتبتي</h2>
-            <p>TODO: عرض التظليلات والملاحظات المحفوظة (بعد تسجيل الدخول).</p>
-          </section>
-        )}
       </main>
-      <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
+
+      <LoginModal
+        open={loginOpen}
+        onClose={() => setLoginOpen(false)}
+      />
     </>
   );
 }
