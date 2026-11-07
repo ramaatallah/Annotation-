@@ -83,6 +83,25 @@ cd website && npm run dev
 | `npm run dev:extension` | تشغيل الإضافة في وضع التطوير |
 | `npm run build:website` | بناء موقع الويب إلى `website/dist` |
 | `npm run dev:website` | تشغيل موقع الويب محلياً على المتصفح |
+| `npm run reset:db` | تصفير قاعدة بيانات SQLite المحلية وحذف البيانات التجريبية |
+
+---
+
+## 🗄️ إدارة وتصفير قواعد البيانات
+
+### 1. تصفير قاعدة البيانات المحلية (SQLite)
+لحذف بيانات SQLite المحلية والبدء من الصفر بقاعدة نظيفة:
+```bash
+npm run reset:db
+```
+يقوم هذا الأمر بحذف ملف `api/annotations.db`، وعند تشغيل السيرفر يُنشئ جداول نظيفة وجديدة تلقائياً.
+
+### 2. تصفير جداول Supabase في السحابة
+لحذف جميع الجداول والعلاقات القديمة في مشروع Supabase:
+1. افتحي لوحة تحكم [Supabase Dashboard](https://supabase.com/dashboard) ثم اختاري **SQL Editor**.
+2. انسخي محتوى الملف [`supabase/drop_all_tables.sql`](file:///C:/Users/hp/Desktop/project/Annotation/supabase/drop_all_tables.sql).
+3. الصقيه في المحرر واضغطي **Run**.
+> **ملاحظة:** تم حفظ نسخة احتياطية من جميع المهاجرات السابقة داخل مجلد `archive/supabase-backup/`.
 
 ---
 

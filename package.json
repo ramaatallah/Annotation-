@@ -6,6 +6,7 @@
     "build:extension": "npm --prefix extension run build",
     "dev:extension": "npm --prefix extension run dev",
     "build:website": "npm --prefix website run build",
-    "dev:website": "npm --prefix website run dev"
+    "dev:website": "npm --prefix website run dev",
+    "reset:db": "powershell -ExecutionPolicy Bypass -File ./scripts/reset_databases.ps1"
   }
 }
