@@ -43,9 +43,19 @@ class ArabicNLPPipeline:
         merged_entities = fusion_engine.merge_entities(text, bert_entities, groq_entities)
 
         # Extract morphological trilateral roots for all content words in the sentence
-        all_roots = root_engine.extract_phrase_roots(text)
+        # Only include resolved roots (word + root), skip unresolved for cleaner output
+        raw_roots = root_engine.extract_phrase_roots(text)
+        all_roots = [
+            {"word": r["word"], "root": r["root"]}
+            for r in raw_roots
+            if r.get("root") and r.get("status") == "analyzed"
+        ]
 
         elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+        logger.info(
+            f"Hybrid Fusion: hatmimoha={len(bert_entities)} ents | Groq={len(groq_entities)} ents -> Merged={len(merged_entities)} final ents | Roots={len(all_roots)} in {elapsed_ms}ms"
+        )
 
         return {
             "original_text": text,

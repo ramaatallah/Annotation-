@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # LLM Settings (Groq)
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
     GROQ_TIMEOUT_SECONDS: float = 12.0
 
     # Local BERT NER Settings

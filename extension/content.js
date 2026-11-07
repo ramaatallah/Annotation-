@@ -91,7 +91,7 @@
         <span class="wahaj-popup-title">🌟 وَهَج — تظليل نص عربي</span>
         <button class="wahaj-popup-close" id="wahajPopupClose">✕</button>
       </div>
-      <div class="wahaj-selected-preview">${truncate(text, 120)}</div>
+      <div class="wahaj-selected-preview">${text}</div>
       <textarea class="wahaj-note-input" id="wahajNoteInput" placeholder="✏️ اكتب ملاحظتك على هذا النص (اختياري)..." rows="3"></textarea>
       <div class="wahaj-popup-actions">
         <button class="wahaj-btn wahaj-btn-save" id="wahajSaveBtn">
@@ -513,7 +513,7 @@
     entities.forEach((ent) => {
       if (ent.roots) {
         ent.roots.forEach((r) => {
-          if (!allRoots.some((existing) => existing.word === r.word)) {
+          if (r.root && r.root !== "None" && !allRoots.some((existing) => existing.word === r.word && existing.root === r.root)) {
             allRoots.push(r);
           }
         });
@@ -525,16 +525,9 @@
         .map(
           (r) => `
         <div class="wahaj-root-item">
-          <div class="wahaj-root-left">
-            <span class="wahaj-root-word">${r.word}</span>
-            ${r.segmentation && r.segmentation !== r.word ? `<span class="wahaj-root-seg" title="التجزئة الصرفية">${r.segmentation}</span>` : ""}
-          </div>
-          <div class="wahaj-root-right">
-            <span class="wahaj-root-arrow">◀</span>
-            <span class="wahaj-root-value">${r.root || "غير محسوم"}</span>
-            ${r.lemma && r.lemma !== r.word ? `<span class="wahaj-root-lemma" title="اللمة المعجمية">(${r.lemma})</span>` : ""}
-            ${r.is_trilateral ? '<span class="wahaj-root-trilateral-badge">ثلاثي</span>' : (r.root && r.root.length === 4 ? '<span class="wahaj-root-quad-badge">رباعي</span>' : '<span class="wahaj-root-unresolved-badge">غير محسوم</span>')}
-          </div>
+          <span class="wahaj-root-word">${r.word}</span>
+          <span class="wahaj-root-arrow">◀</span>
+          <span class="wahaj-root-value">${r.root}</span>
         </div>
       `
         )
@@ -542,7 +535,7 @@
 
       rootsSection = `
         <div class="wahaj-card-section">
-          <span class="wahaj-card-label">🔤 الجذور الصرفية الثلاثية:</span>
+          <span class="wahaj-card-label">🔤 الجذور اللغوية:</span>
           <div class="wahaj-roots-grid">${rootItems}</div>
         </div>
       `;

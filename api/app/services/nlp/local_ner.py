@@ -88,14 +88,36 @@ class LocalBertNER:
                     end_char = item.get("end", start_char + len(entity_text))
 
                     if entity_text and len(entity_text) > 1:
+                        # Strip proclitic conjunction 'و' if attached by BERT (e.g. 'والقدس' -> 'القدس', 'وصلاح' -> 'صلاح')
+                        clean_start = max(0, start_char)
+                        clean_end = min(len(text), end_char)
+                        if (
+                            entity_text.startswith("و")
+                            and len(entity_text) > 3
+                            and entity_text not in {"واشنطن", "وادي", "ورقلة", "ويلز", "ولايات"}
+                            and not text[clean_start:clean_start + 1].isalnum() == False
+                        ):
+                            entity_text = entity_text[1:]
+                            clean_start = clean_start + 1
+
                         entities.append({
                             "text": entity_text,
                             "category": category,
                             "confidence": round(float(item.get("score", 0.95)), 4),
                             "source": "BERT",
-                            "start_char": max(0, start_char),
-                            "end_char": min(len(text), end_char),
+                            "start_char": clean_start,
+                            "end_char": clean_end,
                         })
+
+                # Repair BERT sub-token splits where tokens are contiguous without space (e.g. "والقد" + "س" -> "والقدس")
+                repaired = []
+                for e in entities:
+                    if repaired and repaired[-1]["end_char"] == e["start_char"] and repaired[-1]["category"] == e["category"]:
+                        repaired[-1]["end_char"] = e["end_char"]
+                        repaired[-1]["text"] = text[repaired[-1]["start_char"]:e["end_char"]]
+                    else:
+                        repaired.append(e)
+                entities = repaired
             except Exception as e:
                 logger.warning(f"Transformer inference warning: {e}")
 
@@ -103,6 +125,7 @@ class LocalBertNER:
         heuristic_entities = self._deep_academic_extract(text)
         entities.extend(heuristic_entities)
 
+        logger.info(f"Local BERT (hatmimoha/arabic-ner) extracted {len(entities)} candidate entities.")
         return entities
 
     def _deep_academic_extract(self, text: str) -> List[Dict[str, Any]]:
@@ -111,11 +134,11 @@ class LocalBertNER:
 
         # 1. Universities, Colleges, and Educational Institutions
         # Matches: جامعة النجاح الوطنية, مدرسة النجاح الوطنية, كلية النجاح, جامعة بيرزيت, etc.
-        edu_pattern = rf"\b{ACADEMIC_PREFIXES}\s+[\u0600-\u06FF]+(?:\s+[\u0600-\u06FF]+){{0,4}}"
+        edu_pattern = rf"\b{ACADEMIC_PREFIXES}\s+[\u0600-\u06FF]+(?:\s+[\u0600-\u06FF]+){{0,2}}"
         for match in re.finditer(edu_pattern, text):
             matched_str = match.group().strip()
-            # Stop before verbs or prepositions
-            matched_str = re.split(r"\s+(?:تقع|تعد|تأسست|بدأت|لعبت|في|من|على|إلى|عام)\b", matched_str)[0].strip()
+            # Stop before verbs, prepositions, or connectives
+            matched_str = re.split(r"\s+(?:عن|في|من|على|إلى|مع|لـ|بـ|تقديم|تعلن|تنظم|تواصل|تضم|تحتفل|تقع|تعد|تأسست|بدأت|لعبت|عام)\b", matched_str)[0].strip()
             if len(matched_str.split()) >= 2:
                 cat = "UNIVERSITY" if any(k in matched_str for k in ["جامعة", "كلية", "معهد", "أكاديمية"]) else "ORGANIZATION"
                 entities.append({
@@ -127,9 +150,9 @@ class LocalBertNER:
                     "end_char": match.start() + len(matched_str),
                 })
 
-        # 2. Locations (Cities, Towns, Regions)
+        # 2. Locations (Cities, Towns, Regions) with strict word boundaries
         for city in KNOWN_CITIES_REGIONS:
-            city_pattern = rf"(?:مدينة\s+)?{re.escape(city)}"
+            city_pattern = rf"\b(?:مدينة\s+)?{re.escape(city)}\b"
             for match in re.finditer(city_pattern, text):
                 clean_text = match.group().strip()
                 entities.append({
@@ -141,8 +164,14 @@ class LocalBertNER:
                     "end_char": match.end(),
                 })
 
-        # 3. Dates, Years, and Eras (e.g. عام 1918, عام 1965, عام 1977, سنة 1948)
-        date_pattern = r"(?:عام|سنة|تاريخ|شهر)\s+\d{3,4}(?:\s*م)?|(?:\d{1,2}\s+(?:يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر)(?:\s+\d{4})?)"
+        # 3. Dates, Years, Weeks, and Eras (e.g. عام 1965, سنة 1948, الأسبوع 20, 3 أشهر, الثلث الأخير)
+        date_pattern = (
+            r"(?:عام|سنة|تاريخ|شهر|الأسبوع|أسبوع|يوم)\s+\d+(?:\s*م)?"
+            r"|(?:\d{1,2}\s+(?:يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر)(?:\s+\d{4})?)"
+            r"|(?:\d+\s+(?:أشهر|شهور|سنوات|أعوام|أسابيع|أيام|ساعات|دقائق))"
+            r"|(?:الثلث\s+(?:الأول|الثاني|الأخير))"
+            r"|(?:الربع\s+(?:الأول|الثاني|الثالث|الأخير))"
+        )
         for match in re.finditer(date_pattern, text):
             entities.append({
                 "text": match.group().strip(),
@@ -153,7 +182,43 @@ class LocalBertNER:
                 "end_char": match.end(),
             })
 
-        # 4. Academic Degrees and Programs (e.g. درجات البكالوريوس، الماجستير، الدبلوم، التعليم العالي)
+        # 4. Universal Scientific & Clinical Conditions (e.g. أمراض القلب, مرض السكري, اضطراب كلى الجنين)
+        ARABIC_WORD = r"[\u0621-\u064A\u0671-\u06D3]+"
+        clinical_pattern = rf"\b(?:أمراض|مرض|متلازمة|اضطراب|نقص)\s+{ARABIC_WORD}(?:\s+{ARABIC_WORD}){{0,2}}"
+        for match in re.finditer(clinical_pattern, text):
+            matched_str = match.group().strip()
+            # Stop before connectives, verbs, or punctuation
+            matched_str = re.split(r"[\s،,.:؟!؛]+(?:عن|في|من|على|إلى|مع|لـ|بـ|لدى|دون|أو|و|ونقص|قد|تسبب|يسبب|تعد|تظهر)\b", matched_str)[0].strip()
+            matched_str = matched_str.strip(" ،,.:؟!؛")
+            if len(matched_str.split()) >= 2:
+                entities.append({
+                    "text": matched_str,
+                    "category": "DISEASE",
+                    "confidence": 0.95,
+                    "source": "AcademicEngine",
+                    "start_char": match.start(),
+                    "end_char": match.start() + len(matched_str),
+                })
+
+        # 5. Universal Research & Scientific Methodology Concepts
+        research_terms = [
+            "المجموعة الضابطة", "العينة الضابطة", "الفرضية الصفرية", "التحليل الإحصائي",
+            "التجارب السريرية", "المنهج الوصفي", "معامل الارتباط", "الانحدار الخطي",
+            "الدراسة الاستقصائية", "المراجعة المنهجية", "التحليل البعدي", "عينة البحث",
+        ]
+        for term in research_terms:
+            pattern = rf"\b{re.escape(term)}\b"
+            for match in re.finditer(pattern, text):
+                entities.append({
+                    "text": match.group().strip(),
+                    "category": "CONCEPT",
+                    "confidence": 0.96,
+                    "source": "AcademicEngine",
+                    "start_char": match.start(),
+                    "end_char": match.end(),
+                })
+
+        # 6. Academic Degrees and Programs (e.g. درجات البكالوريوس، الماجستير، الدبلوم، التعليم العالي)
         for deg in DEGREE_TERMS:
             pattern = rf"(?:درجة\s+|درجات\s+)?{re.escape(deg)}"
             for match in re.finditer(pattern, text):
@@ -166,7 +231,7 @@ class LocalBertNER:
                     "end_char": match.end(),
                 })
 
-        # 5. Academic Fields and Disciplines (e.g. الكيمياء، الفيزياء، أصول الدين، الطب، علم المناعة)
+        # 7. Academic Fields and Disciplines (e.g. الكيمياء، الفيزياء، أصول الدين، الطب، علم المناعة)
         for field in ACADEMIC_FIELDS:
             pattern = rf"\b{re.escape(field)}\b"
             for match in re.finditer(pattern, text):
@@ -179,26 +244,6 @@ class LocalBertNER:
                     "start_char": match.start(),
                     "end_char": match.end(),
                 })
-
-        # 6. Prominent Figures & Political/Academic Roles (e.g. السياسي الفلسطيني حسن شاكر حماد)
-        person_patterns = [
-            r"(?:السياسي(?:\s+الفلسطيني)?|الدكتور|الأستاذ|الشيخ|المؤسس)\s+([\u0600-\u06FF]+(?:\s+[\u0600-\u06FF]+){1,3})",
-            r"(?:على\s+يد\s+)([\u0600-\u06FF]+(?:\s+[\u0600-\u06FF]+){1,3})",
-        ]
-        for p_pat in person_patterns:
-            for match in re.finditer(p_pat, text):
-                person_name = match.group(1).strip()
-                # Stop if it hit punctuation or dates
-                person_name = re.split(r"[\s،,\.\-\(\)\[\]]", person_name)[0] if len(person_name.split()) > 4 else person_name
-                if len(person_name.split()) >= 2 and not any(city in person_name for city in KNOWN_CITIES_REGIONS):
-                    entities.append({
-                        "text": person_name,
-                        "category": "PERSON",
-                        "confidence": 0.91,
-                        "source": "AcademicEngine",
-                        "start_char": match.start(1),
-                        "end_char": match.start(1) + len(person_name),
-                    })
 
         return entities
 

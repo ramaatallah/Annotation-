@@ -1,8 +1,7 @@
-// خدمة التواصل مع الـ API: تحليل النص (كيانات + دقة + جذر)
+// خدمة التواصل مع الـ API: تحليل النص (كيانات + دقة + جذور)
 //
 // الباك إند (api/main.py) بيرد على POST {VITE_API_URL}/analyze بـ:
-//   { "entities": [ { "text", "start", "end", "type": "PERSON|ORGANIZATION|LOCATION|...", "confidence": 0.96, ... } ] }
-// هالملف بيقبل كمان الشكل البديل: label بدل type، و score بدل confidence، و root.
+//   { "original_text", "entities": [ { "text", "category", "confidence", "source", "start_char", "end_char", "roots": [{word, root}] } ], "all_roots": [{word, root}] }
 // إذا ما في VITE_API_URL في ملف .env بيشتغل وضع تجريبي (mock) عشان تجرب الواجهة فوراً.
 
 // نشيل أي "/" بالنهاية عشان ما يصير //analyze
@@ -14,7 +13,7 @@ const LABEL_ALIAS = { PER: 'PERSON', LOC: 'LOCATION', ORG: 'ORGANIZATION' };
 export async function analyzeText(text) {
   if (!API_URL) {
     await new Promise((r) => setTimeout(r, 400)); // محاكاة زمن الشبكة
-    return { entities: mockEntities(text), mock: true };
+    return { entities: mockEntities(text), allRoots: [], mock: true };
   }
 
   let res;
@@ -30,16 +29,22 @@ export async function analyzeText(text) {
   if (!res.ok) throw new Error(`فشل الطلب (${res.status})`);
 
   const data = await res.json();
-  const list = Array.isArray(data) ? data : data.entities ?? [];
-  return { entities: normalize(text, list), mock: false };
+
+  // تحويل الاستجابة من الباك إند للشكل المتوقع في الواجهة
+  const rawEntities = data.entities ?? [];
+  const entities = normalize(text, rawEntities);
+  const allRoots = data.all_roots ?? [];
+
+  return { entities, allRoots, mock: false };
 }
 
-// توحيد الرد: label/score/root موحّدة، وحساب start/end إذا ناقصة، وحذف التداخل
+// توحيد الرد: label/score/roots موحّدة، وحساب start/end إذا ناقصة، وحذف التداخل
 function normalize(text, entities) {
   let cursor = 0;
   const out = [];
   for (const e of entities) {
-    let { start, end } = e;
+    let start = e.start_char ?? e.start;
+    let end = e.end_char ?? e.end;
     if (start == null || end == null) {
       start = text.indexOf(e.text, cursor);
       if (start === -1) continue;
@@ -48,13 +53,17 @@ function normalize(text, entities) {
     if (start < 0 || end > text.length || end <= start) continue;
     cursor = end;
 
-    const rawLabel = e.label ?? e.type ?? 'OTHER';
-    const rawScore = Number(e.score ?? e.confidence ?? 0);
+    const rawLabel = e.category ?? e.label ?? e.type ?? 'OTHER';
+    const rawScore = Number(e.confidence ?? e.score ?? 0);
     const score = rawScore <= 1 ? rawScore * 100 : rawScore;
+
+    // الجذور: فقط المحسومة (word + root)، الباك إند بيرجعهم مفلترة
+    const roots = (e.roots ?? []).filter(r => r.root);
+
     out.push({
       text: text.slice(start, end),
       label: LABEL_ALIAS[rawLabel] ?? rawLabel,
-      root: e.root ?? '—',
+      roots,
       score: Math.round(score * 10) / 10,
       start,
       end,
@@ -72,8 +81,8 @@ function normalize(text, entities) {
 
 const GAZETTEER = [
   // مؤسسات
-  ['جامعة النجاح الوطنية', 'ORGANIZATION', 'نجح'], ['جامعة بيرزيت', 'ORGANIZATION', 'برزت'],
-  ['جامعة القدس', 'ORGANIZATION', 'قدس'], ['جامعة الخليل', 'ORGANIZATION', 'خلل'],
+  ['جامعة النجاح الوطنية', 'UNIVERSITY', 'نجح'], ['جامعة بيرزيت', 'UNIVERSITY', 'برزت'],
+  ['جامعة القدس', 'UNIVERSITY', 'قدس'], ['جامعة الخليل', 'UNIVERSITY', 'خلل'],
   ['الأمم المتحدة', 'ORGANIZATION', 'أمم'], ['منظمة الصحة العالمية', 'ORGANIZATION', 'صحح'],
   ['الجامعة العربية', 'ORGANIZATION', 'عرب'], ['الهلال الأحمر', 'ORGANIZATION', 'هلل'],
   // أماكن
@@ -144,7 +153,9 @@ function mockEntities(text) {
     const start = toks[i].start + shift;
     const end = toks[j].end;
     const score = 82 + ((start * 7 + (end - start) * 3) % 15) + 0.5; // قيمة ثابتة لكل موضع
-    found.push({ text: text.slice(start, end), label, root, start, end, score });
+    // الجذور: فقط كلمة + جذر
+    const roots = root && root !== '—' ? [{ word: text.slice(start, end), root }] : [];
+    found.push({ text: text.slice(start, end), label, roots, start, end, score });
     for (let k = i; k <= j; k++) taken.add(k);
   };
 
@@ -175,17 +186,17 @@ function mockEntities(text) {
       if (!nextOk(i + 1) || (v.al && !hasAl(toks[i + 1].n))) continue;
       let j = i + 1;
       while (j + 1 < toks.length && j - i < 3 && nextOk(j + 1) && /^(وال|ال)/.test(toks[j + 1].n)) j++;
-      add(i, j, v.shift, 'ORGANIZATION', '—');
+      add(i, j, v.shift, 'ORGANIZATION', null);
       i = j;
     } else if (LOC_TRIG.has(v.core)) {
       if (v.al || !nextOk(i + 1)) continue;
       const j = COMPOUND.has(stripAl(toks[i + 1].n)) && nextOk(i + 2) ? i + 2 : i + 1;
-      add(i + 1, j, 0, 'LOCATION', '—');
+      add(i + 1, j, 0, 'LOCATION', null);
       i = j;
     } else {
       if (!nextOk(i + 1)) continue;
       const j = COMPOUND.has(toks[i + 1].n) && nextOk(i + 2) ? i + 2 : i + 1;
-      add(i + 1, j, 0, 'PERSON', '—');
+      add(i + 1, j, 0, 'PERSON', null);
       i = j;
     }
   }
