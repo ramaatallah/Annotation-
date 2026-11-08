@@ -16,6 +16,14 @@ class Settings(BaseSettings):
     # Database Settings
     DATABASE_URL: str = "sqlite:///./annotations.db"
 
+    # Supabase Cloud Sync Settings
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "https://tnyvdudzteejdztqmpqa.supabase.co")
+    SUPABASE_KEY: str = os.getenv(
+        "SUPABASE_KEY",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRueXZkdWR6dGVlamR6dHFtcHFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE2NTEwMzMsImV4cCI6MjEwNzIyNzAzM30.ryETzFg4B_8FMGUNkenAjdA0UAW7SZMO-XZ6Ub7Ri7E"
+    )
+    ENABLE_SUPABASE_SYNC: bool = True
+
     # LLM Settings (Groq)
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
     GROQ_MODEL: str = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")

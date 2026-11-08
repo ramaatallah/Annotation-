@@ -16,15 +16,26 @@ logger = logging.getLogger(__name__)
 # Priority order for entity categorization (more specific types take precedence)
 CATEGORY_PRIORITY = {
     "UNIVERSITY": 100,
-    "DISEASE": 95,
+    "SPECIES": 96,
+    "PHENOMENON": 95,
+    "CHEMICAL": 94,
+    "ANATOMY": 93,
+    "DISEASE": 92,
     "MEDICAL_TERM": 90,
-    "TECHNOLOGY": 85,
-    "FIELD": 80,
-    "CONCEPT": 75,
+    "TECHNOLOGY": 88,
+    "WORK": 86,
+    "EVENT": 84,
+    "LAW_RULE": 82,
+    "ASTRONOMY": 80,
+    "FIELD": 78,
+    "PERIOD": 76,
+    "ARTIFACT": 74,
+    "CONCEPT": 72,
     "PERSON": 70,
     "LOCATION": 65,
     "ORGANIZATION": 60,
     "DATE": 50,
+    "OTHER": 30,
     "MISC": 10,
 }
 
@@ -39,20 +50,33 @@ class EntityFusionEngine:
         llm_entities: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
         """Merges two entity streams into a cohesive, non-overlapping entity list."""
-        all_candidates = []
-
-        # Tag and validate BERT candidates
-        for ent in bert_entities:
-            clean_ent = self._sanitize_entity(original_text, ent)
-            if clean_ent:
-                all_candidates.append(clean_ent)
-
-        # Tag and validate LLM candidates
+        # 1. Sanitize and accept all LLM entities as primary ground truth
+        clean_llm: List[Dict[str, Any]] = []
         for ent in llm_entities:
-            clean_ent = self._sanitize_entity(original_text, ent)
-            if clean_ent:
-                all_candidates.append(clean_ent)
+            clean = self._sanitize_entity(original_text, ent)
+            if clean:
+                clean["source"] = "Groq"
+                clean_llm.append(clean)
 
+        # 2. Add BERT entities ONLY as gap-fillers for unmentioned entities, NEVER overriding or corrupting LLM entities
+        clean_bert: List[Dict[str, Any]] = []
+        for ent in bert_entities:
+            clean = self._sanitize_entity(original_text, ent)
+            if not clean:
+                continue
+            clean["source"] = "BERT"
+            # Discard BERT entity if it overlaps in position or text with any high-confidence LLM entity
+            overlaps_llm = any(
+                (clean["start_char"] < g["end_char"] and clean["end_char"] > g["start_char"]) or
+                (clean["text"] == g["text"]) or
+                (clean["text"] in g["text"] and len(clean["text"]) >= 3) or
+                (g["text"] in clean["text"] and len(g["text"]) >= 3)
+                for g in clean_llm
+            )
+            if not overlaps_llm:
+                clean_bert.append(clean)
+
+        all_candidates = clean_llm + clean_bert
         if not all_candidates:
             return []
 
@@ -72,9 +96,12 @@ class EntityFusionEngine:
 
             # Case A: Exact match in span or text -> Merge & boost confidence
             if candidate["start_char"] == last["start_char"] and candidate["end_char"] == last["end_char"]:
-                # Prefer more specific category
-                if CATEGORY_PRIORITY.get(candidate["category"], 0) > CATEGORY_PRIORITY.get(last["category"], 0):
+                if candidate.get("source") == "Groq":
                     last["category"] = candidate["category"]
+                    last["label_ar"] = candidate.get("label_ar")
+                elif last.get("source") != "Groq" and CATEGORY_PRIORITY.get(candidate["category"], 0) > CATEGORY_PRIORITY.get(last["category"], 0):
+                    last["category"] = candidate["category"]
+                    last["label_ar"] = candidate.get("label_ar")
                 # Boost confidence for agreement
                 last["confidence"] = min(1.0, round(max(last["confidence"], candidate["confidence"]) + 0.05, 4))
                 last["source"] = "Hybrid"
@@ -82,6 +109,13 @@ class EntityFusionEngine:
 
             # Case B: Overlap detected
             if candidate["start_char"] < last["end_char"]:
+                # Groq LLM has superior semantic boundaries and context over legacy BERT
+                if candidate.get("source") == "Groq" and last.get("source") == "BERT":
+                    merged[-1] = candidate
+                    continue
+                if last.get("source") == "Groq" and candidate.get("source") == "BERT":
+                    continue
+
                 # Sub-span containment check: if candidate is completely inside last (e.g. 'فلسطين' inside 'بنك فلسطين')
                 if candidate["start_char"] >= last["start_char"] and candidate["end_char"] <= last["end_char"]:
                     continue
@@ -108,6 +142,23 @@ class EntityFusionEngine:
 
         # Post-pass: Stitch adjacent fragments (e.g., "محمود" + "درويش", "رام" + "الله")
         merged = self._stitch_adjacent_entities(original_text, merged)
+
+        # Deduplicate identical entity texts to keep cards and annotations clean
+        unique_entities: List[Dict[str, Any]] = []
+        seen_texts = set()
+        for ent in merged:
+            norm_text = ent["text"].strip()
+            if norm_text not in seen_texts:
+                seen_texts.add(norm_text)
+                unique_entities.append(ent)
+            else:
+                # Upgrade category if a higher-priority one was found
+                for u in unique_entities:
+                    if u["text"] == norm_text and CATEGORY_PRIORITY.get(ent["category"], 0) > CATEGORY_PRIORITY.get(u["category"], 0):
+                        u["category"] = ent["category"]
+                        u["label_ar"] = ent.get("label_ar") or u.get("label_ar")
+                        break
+        merged = unique_entities
 
         # Attach trilateral roots to each constituent word in the entity
         # Only include resolved roots (word + root), skip unresolved to reduce noise
@@ -212,11 +263,74 @@ class EntityFusionEngine:
             else:
                 text_val = actual_sub.strip()
 
+        # Universal Arabic Particle & Preposition Normalization:
+        # Entities are substantive noun phrases; they must never start or end with grammatical particles
+        ARABIC_PARTICLES = {
+            "عن", "في", "من", "على", "إلى", "مع", "لـ", "بـ", "كـ", "أو", "و", "فـ", "ثم",
+            "حتى", "منذ", "بين", "نحو", "لدى", "ضد", "حول", "دون", "غير", "سوى", "إذ", "إذا",
+            "أن", "إن", "لكن", "لعل", "ليت", "قد", "لقد", "حيث", "بما", "كما", "لما", "كي", "لكي",
+            "ال", "الـ", "الإ", "وال", "بال", "كال", "لل"
+        }
+
+        raw_words = text_val.split()
+        if not raw_words:
+            return None
+
+        # Strip trailing prepositions/particles (e.g. 'لنحاس عن' -> 'لنحاس')
+        while raw_words and raw_words[-1] in ARABIC_PARTICLES:
+            raw_words.pop()
+
+        # Strip leading prepositions/particles (e.g. 'في روما' -> 'روما')
+        while raw_words and raw_words[0] in ARABIC_PARTICLES:
+            raw_words.pop(0)
+
+        if not raw_words:
+            return None
+
+        text_val = " ".join(raw_words).strip()
+        if len(text_val) < 2:
+            return None
+
+        # Universal Verb & Negation Rejection:
+        # Rejects any entity starting with Arabic negation or jussive particles (e.g. 'لم تحصل', 'لن يكون')
+        NEGATION_VERB_PREFIXES = ("لم ", "لن ", "لا ", "ما ", "ليس ", "ليست ", "كي ", "لكي ", "حتى ", "قد ")
+        if text_val.startswith(NEGATION_VERB_PREFIXES):
+            return None
+
+        # Universal Standalone Quantifier / Determiner Rejection:
+        STANDALONE_QUANTIFIERS = {"بضع", "بضعة", "عدة", "بعض", "كثير", "قليل", "جميع", "كل", "أحد", "إحدى"}
+        if text_val in STANDALONE_QUANTIFIERS:
+            return None
+
+        # Universal Proclitic Normalization:
+        # Normalize attached prepositions (لـ / بـ / كـ) on defined nouns (e.g. 'للنحاس' -> 'النحاس')
+        if len(text_val) > 4:
+            if text_val.startswith("لل") and not text_val.startswith(("الله", "اللهم", "الليل", "الليث")):
+                text_val = "ال" + text_val[2:]
+            elif text_val.startswith(("بال", "فال", "كال", "وال")):
+                text_val = "ال" + text_val[3:]
+
+        # Recalculate true span in original text
+        found_pos = original_text.find(text_val)
+        if found_pos != -1:
+            start = found_pos
+            end = start + len(text_val)
+
         category = ent.get("category", "CONCEPT").upper()
+
+        # Universal Morphological Rule: Non-person semantic anchors can never be categorized as PERSON
+        PERIOD_MARKERS = {"عصر", "حقبة", "تاريخ", "فترة", "قرن", "حضارة", "سنة", "ألفية", "إمبراطورية"}
+        LOCATION_MARKERS = {"مدينة", "جزيرة", "دولة", "مملكة", "عاصمة", "جبل", "بحر", "نهر", "وادي", "خليج", "قارة", "روما"}
+        if category == "PERSON":
+            if any(pm in text_val for pm in PERIOD_MARKERS):
+                category = "PERIOD"
+            elif any(lm in text_val for lm in LOCATION_MARKERS):
+                category = "LOCATION"
 
         clean_ent = {
             "text": text_val,
             "category": category,
+            "label_ar": ent.get("label_ar"),
             "confidence": round(float(ent.get("confidence", 0.90)), 4),
             "source": ent.get("source", "Hybrid"),
             "start_char": start,

@@ -20,6 +20,7 @@ class EntitySchema(BaseModel):
     """Schema representing a detected academic or named entity."""
     text: str = Field(..., description="The entity text as found in the sentence")
     category: str = Field(..., description="Entity category: UNIVERSITY, LOCATION, PERSON, DISEASE, TECHNOLOGY, CONCEPT, etc.")
+    label_ar: Optional[str] = Field(None, description="Detailed Arabic descriptor (e.g. شجرة حرجية, ظاهرة نباتية)")
     confidence: float = Field(1.0, ge=0.0, le=1.0, description="Confidence score from 0.0 to 1.0")
     source: str = Field("Hybrid", description="Extraction source: BERT, Groq, Hybrid, or Lexicon")
     start_char: int = Field(0, description="Starting character index in original text")

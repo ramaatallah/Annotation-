@@ -48,11 +48,13 @@ async def website_analyze_endpoint(req: WebsiteAnalyzeRequest):
 
         category = ent.get("category", "OTHER")
         confidence = float(ent.get("confidence", 0.95))
+        label_ar = ent.get("label_ar")
 
         normalized_entities.append({
             "text": ent.get("text"),
             "type": category,
-            "label": category,
+            "label": label_ar or category,
+            "label_ar": label_ar,
             "confidence": confidence,
             "score": round(confidence * 100, 1) if confidence <= 1.0 else round(confidence, 1),
             "start": ent.get("start_char", 0),

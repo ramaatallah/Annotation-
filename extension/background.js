@@ -111,8 +111,12 @@ async function deleteAnnotation(id) {
 }
 
 async function getAnnotations(url) {
+  let cleanUrl = url;
+  try {
+    cleanUrl = decodeURI(url);
+  } catch (e) {}
   const res = await fetch(
-    `${API_BASE}/v1/annotations?url=${encodeURIComponent(url)}`
+    `${API_BASE}/v1/annotations?url=${encodeURIComponent(cleanUrl)}`
   );
   if (!res.ok) throw new Error(`Fetch failed (${res.status})`);
   return res.json();

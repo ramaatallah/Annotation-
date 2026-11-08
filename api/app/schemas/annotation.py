@@ -10,6 +10,10 @@ class AnnotationBase(BaseModel):
     selected_text: str = Field(..., min_length=1, description="Highlighted text")
     note: Optional[str] = Field(None, description="User note attached to highlight")
     color: Optional[str] = Field("#FFE082", description="Highlight hex color code")
+    user_id: Optional[str] = Field(None, description="Researcher user ID")
+    author_name: Optional[str] = Field("باحث", description="Researcher name")
+    project_id: Optional[int] = Field(None, description="Associated research project ID")
+    visibility: Optional[str] = Field("private", description="Visibility status: private or public")
 
 
 class AnnotationCreate(AnnotationBase):

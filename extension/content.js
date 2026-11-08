@@ -29,6 +29,12 @@
     });
 
     await restoreHighlights();
+
+    // Safety retry in case DOM was still finishing asynchronous rendering
+    setTimeout(() => {
+      restoreHighlights();
+    }, 700);
+
     setupSelectionListener();
     setupMessageListener();
   }
@@ -147,6 +153,7 @@
       note: note || null,
       color: "#f1c75b",
       auto_analyze: true,
+      author_name: "باحث",
     };
 
     const rangeToHighlight = currentSelectedRange ? currentSelectedRange.cloneRange() : null;
@@ -286,56 +293,54 @@
   }
 
   /* ═══════════════════════════════════════════════
-     6. CROSS-NODE TEXT SEARCH (For Restoring Highlights)
+     6. ROBUST CROSS-NODE TEXT SEARCH & RESTORATION
      ═══════════════════════════════════════════════ */
   function findAndHighlightCrossNodeText(searchText, annotationData) {
+    if (!searchText) return null;
     const cleanSearch = searchText.replace(/\s+/g, " ").trim();
     if (!cleanSearch) return null;
 
-    const blocks = document.querySelectorAll("p, div, li, article, section, td, th, h1, h2, h3, h4");
-    for (const block of blocks) {
+    // 1. Primary Priority: Search in leaf text-bearing blocks (p, li, td, headings)
+    const leafBlocks = document.querySelectorAll("p, li, blockquote, dt, dd, td, th, h1, h2, h3, h4, h5, h6");
+    for (const block of leafBlocks) {
       if (block.closest(".wahaj-selection-popup, .wahaj-tooltip-card, .wahaj-toast")) continue;
-
       const blockText = block.textContent.replace(/\s+/g, " ");
       if (blockText.includes(cleanSearch)) {
-        const range = createRangeForSubstring(block, cleanSearch);
+        const range = createRangeForSubstring(block, searchText);
         if (range) {
           return highlightRange(range, annotationData);
         }
       }
     }
 
-    const walker = document.createTreeWalker(
-      document.body,
-      NodeFilter.SHOW_TEXT,
-      {
-        acceptNode: (node) => {
-          if (node.parentElement && node.parentElement.closest(".wahaj-selection-popup, .wahaj-tooltip-card, .wahaj-toast")) {
-            return NodeFilter.FILTER_REJECT;
-          }
-          if (node.textContent.includes(searchText)) {
-            return NodeFilter.FILTER_ACCEPT;
-          }
-          return NodeFilter.FILTER_REJECT;
-        },
+    // 2. Secondary Priority: Multi-paragraph or cross-element selections
+    // Find the leaf block that contains the start snippet of the highlighted text (first 35 chars)
+    const startSnippet = cleanSearch.slice(0, Math.min(35, cleanSearch.length));
+    for (const block of leafBlocks) {
+      if (block.closest(".wahaj-selection-popup, .wahaj-tooltip-card, .wahaj-toast")) continue;
+      const bText = block.textContent.replace(/\s+/g, " ");
+      if (bText.includes(startSnippet)) {
+        // Find closest parent article or content container
+        const cont = block.closest("article, main, [role='main'], .mw-parser-output, .entry-content, .article-body, #bodyContent") || block.parentElement.parentElement || document.body;
+        const range = createRangeForSubstring(cont, searchText);
+        if (range) {
+          return highlightRange(range, annotationData);
+        }
       }
-    );
+    }
 
-    if (walker.nextNode()) {
-      const node = walker.currentNode;
-      const idx = node.textContent.indexOf(searchText);
-      if (idx !== -1) {
-        const range = document.createRange();
-        range.setStart(node, idx);
-        range.setEnd(node, idx + searchText.length);
-        return highlightRange(range, annotationData);
-      }
+    // 3. Final fallback: try document.body
+    const bodyRange = createRangeForSubstring(document.body, searchText);
+    if (bodyRange) {
+      return highlightRange(bodyRange, annotationData);
     }
 
     return null;
   }
 
   function createRangeForSubstring(container, text) {
+    if (!container || !text) return null;
+
     const walker = document.createTreeWalker(
       container,
       NodeFilter.SHOW_TEXT,
@@ -352,58 +357,78 @@
       }
     );
 
-    const nodes = [];
-    const starts = [];
-    let fullStr = "";
-
+    const textNodes = [];
     while (walker.nextNode()) {
-      nodes.push(walker.currentNode);
-      starts.push(fullStr.length);
-      fullStr += walker.currentNode.textContent;
+      textNodes.push(walker.currentNode);
     }
+    if (textNodes.length === 0) return null;
 
-    const normFull = fullStr.replace(/\s+/g, " ");
-    let pos = normFull.indexOf(text);
-    if (pos === -1) {
-      const lead = text.substring(0, Math.min(30, text.length));
-      pos = normFull.indexOf(lead);
-    }
-    if (pos === -1) return null;
+    // Build contiguous text and maintain exact 1-to-1 character index mapping
+    const charMap = [];
+    let combined = "";
 
-    const targetEnd = pos + text.length;
-
-    let startNode = null;
-    let startOffset = 0;
-    let endNode = null;
-    let endOffset = 0;
-
-    for (let i = 0; i < nodes.length; i++) {
-      const nodeStart = starts[i];
-      const nodeEnd = nodeStart + nodes[i].textContent.length;
-
-      if (!startNode && pos >= nodeStart && pos < nodeEnd) {
-        startNode = nodes[i];
-        startOffset = pos - nodeStart;
-      }
-      if (targetEnd > nodeStart && targetEnd <= nodeEnd) {
-        endNode = nodes[i];
-        endOffset = targetEnd - nodeStart;
-        break;
+    for (const node of textNodes) {
+      const str = node.textContent;
+      for (let i = 0; i < str.length; i++) {
+        charMap.push({ node, offset: i });
+        combined += str[i];
       }
     }
 
-    if (!endNode && nodes.length > 0) {
-      endNode = nodes[nodes.length - 1];
-      endOffset = endNode.textContent.length;
+    const cleanTarget = text.trim();
+    if (!cleanTarget) return null;
+
+    // 1. Direct character match
+    let matchIdx = combined.indexOf(cleanTarget);
+    let matchLen = cleanTarget.length;
+
+    // 2. Normalized whitespace match (tracking back to exact charMap index)
+    if (matchIdx === -1) {
+      const normTarget = cleanTarget.replace(/\s+/g, " ");
+      let normCombined = "";
+      const normToOrig = [];
+      let inWs = false;
+
+      for (let i = 0; i < combined.length; i++) {
+        const ch = combined[i];
+        if (/\s/.test(ch)) {
+          if (!inWs) {
+            normCombined += " ";
+            normToOrig.push(i);
+            inWs = true;
+          }
+        } else {
+          normCombined += ch;
+          normToOrig.push(i);
+          inWs = false;
+        }
+      }
+
+      const normIdx = normCombined.indexOf(normTarget);
+      if (normIdx !== -1) {
+        matchIdx = normToOrig[normIdx];
+        const endNormIdx = normIdx + normTarget.length - 1;
+        const endOrigIdx = normToOrig[endNormIdx] || (matchIdx + normTarget.length - 1);
+        matchLen = (endOrigIdx - matchIdx) + 1;
+      }
     }
 
-    if (startNode && endNode) {
+    if (matchIdx === -1 || matchIdx >= charMap.length) return null;
+
+    const startPt = charMap[matchIdx];
+    const endIdx = Math.min(charMap.length - 1, matchIdx + matchLen - 1);
+    const endPt = charMap[endIdx];
+
+    if (!startPt || !endPt) return null;
+
+    try {
       const range = document.createRange();
-      range.setStart(startNode, startOffset);
-      range.setEnd(endNode, endOffset);
+      range.setStart(startPt.node, startPt.offset);
+      range.setEnd(endPt.node, endPt.offset + 1);
       return range;
+    } catch {
+      return null;
     }
-    return null;
   }
 
   /* ═══════════════════════════════════════════════
@@ -479,7 +504,7 @@
       const badges = entities
         .map((ent) => {
           const catLabel = getCategoryLabel(ent.category);
-          const catNameAr = getCategoryArabicName(ent.category);
+          const catNameAr = ent.label_ar || getCategoryArabicName(ent.category);
           return `
             <span class="wahaj-entity-badge" data-category="${ent.category}">
               ${catLabel} <strong>${ent.text}</strong>
@@ -653,7 +678,11 @@
       if (Array.isArray(response) && response.length > 0) {
         currentAnnotations = response;
         response.forEach((ann) => {
-          findAndHighlightCrossNodeText(ann.selected_text, ann);
+          // If this annotation is already highlighted on page, skip to avoid double wrapping
+          const existing = document.querySelector(`mark.wahaj-highlight[data-annotation-id="${ann.id}"]`);
+          if (!existing) {
+            findAndHighlightCrossNodeText(ann.selected_text, ann);
+          }
         });
       }
     } catch {
@@ -728,6 +757,16 @@
 
   function getCategoryLabel(category) {
     const labels = {
+      SPECIES: "🌿",
+      PHENOMENON: "🔬",
+      WORK: "📖",
+      EVENT: "⚔️",
+      CHEMICAL: "🧪",
+      ANATOMY: "🫀",
+      LAW_RULE: "⚖️",
+      PERIOD: "⏳",
+      ASTRONOMY: "🌌",
+      ARTIFACT: "🏺",
       UNIVERSITY: "🏛️",
       LOCATION: "📍",
       PERSON: "👤",
@@ -738,22 +777,34 @@
       CONCEPT: "💡",
       FIELD: "📚",
       DATE: "📅",
+      OTHER: "🏷️",
     };
     return labels[category] || "🏷️";
   }
 
   function getCategoryArabicName(category) {
     const names = {
+      SPECIES: "كائن حي / نبات",
+      PHENOMENON: "ظاهرة علمية",
+      WORK: "مؤلَّف / وثيقة",
+      EVENT: "حدث تاريخي",
+      CHEMICAL: "مركب كيميائي",
+      ANATOMY: "عضو / تشريح",
+      LAW_RULE: "نظرية / قاعدة",
+      PERIOD: "عصر / حقبة",
+      ASTRONOMY: "جرم فلكي",
+      ARTIFACT: "أداة / أثر",
       UNIVERSITY: "جامعة",
       LOCATION: "موقع جغرافي",
       PERSON: "شخص / باحث",
       ORGANIZATION: "مؤسسة / هيئة",
       DISEASE: "مرض / متلازمة",
-      MEDICAL_TERM: "مصطلح طبي / مناعي",
+      MEDICAL_TERM: "مصطلح طبي",
       TECHNOLOGY: "تقنية",
       CONCEPT: "مفهوم علمي",
       FIELD: "حقل وتخصص",
       DATE: "تاريخ / زمن",
+      OTHER: "كيان علمي",
     };
     return names[category] || category;
   }

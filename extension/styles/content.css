@@ -367,6 +367,56 @@
   color: #0d9488;
   border: 1px solid rgba(13, 148, 136, 0.3);
 }
+.wahaj-entity-badge[data-category="SPECIES"] {
+  background: rgba(21, 128, 61, 0.12);
+  color: #15803d;
+  border: 1px solid rgba(21, 128, 61, 0.35);
+}
+.wahaj-entity-badge[data-category="PHENOMENON"] {
+  background: rgba(2, 132, 199, 0.12);
+  color: #0284c7;
+  border: 1px solid rgba(2, 132, 199, 0.35);
+}
+.wahaj-entity-badge[data-category="WORK"] {
+  background: rgba(180, 83, 9, 0.12);
+  color: #b45309;
+  border: 1px solid rgba(180, 83, 9, 0.35);
+}
+.wahaj-entity-badge[data-category="EVENT"] {
+  background: rgba(185, 28, 28, 0.12);
+  color: #b91c1c;
+  border: 1px solid rgba(185, 28, 28, 0.35);
+}
+.wahaj-entity-badge[data-category="CHEMICAL"] {
+  background: rgba(124, 58, 237, 0.12);
+  color: #7c3aed;
+  border: 1px solid rgba(124, 58, 237, 0.35);
+}
+.wahaj-entity-badge[data-category="ANATOMY"] {
+  background: rgba(190, 18, 60, 0.12);
+  color: #be123c;
+  border: 1px solid rgba(190, 18, 60, 0.35);
+}
+.wahaj-entity-badge[data-category="LAW_RULE"] {
+  background: rgba(67, 56, 202, 0.12);
+  color: #4338ca;
+  border: 1px solid rgba(67, 56, 202, 0.35);
+}
+.wahaj-entity-badge[data-category="PERIOD"] {
+  background: rgba(194, 65, 12, 0.12);
+  color: #c2410c;
+  border: 1px solid rgba(194, 65, 12, 0.35);
+}
+.wahaj-entity-badge[data-category="ASTRONOMY"] {
+  background: rgba(30, 64, 175, 0.12);
+  color: #1e40af;
+  border: 1px solid rgba(30, 64, 175, 0.35);
+}
+.wahaj-entity-badge[data-category="ARTIFACT"] {
+  background: rgba(133, 77, 14, 0.12);
+  color: #854d0e;
+  border: 1px solid rgba(133, 77, 14, 0.35);
+}
 .wahaj-entity-badge[data-category="DATE"] {
   background: rgba(202, 138, 4, 0.1);
   color: #ca8a04;

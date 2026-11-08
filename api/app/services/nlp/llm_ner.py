@@ -19,33 +19,55 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """أنت نظام ذكاء اصطناعي فائق الدقة متخصص في الأبحاث العلمية ومعالجة اللغة العربية واستخراج الكيانات المسماة كاملة دون تقطيع (Academic & Scientific Named Entity Recognition).
-مهمتك استخراج جميع الكيانات والمفاهيم والمصطلحات العلمية والطبية والأكاديمية المهمة من النص العربي المعطى وتصنيفها بدقة تامة.
+SYSTEM_PROMPT = """أنت نظام ذكاء اصطناعي أكاديمي فائق التخصص في الأبحاث واللغة العربية واستخراج الكيانات والمفاهيم العلمية بدقة تامة وبفهم سياقي عميق (Context-Aware Academic Named Entity Recognition).
+مهمتك استخراج الكيانات والمصطلحات والظواهر والمفاهيم العلمية الحقيقية من النص وتصنيفها بأدق فئة معتمدة على سياق الجملة، مع إعطائها وصفاً عربياً دقيقاً في حقل "label_ar".
 
-قواعد جوهرية وحاسمة:
-1. الكيان يجب أن يكون كاملاً وغير مجتزأ أبداً (Full Entity Span):
-   - استخرج الأسماء المركبة كاملة: "صلاح الدين الأيوبي" ككيان واحد، "جمال عبد الناصر"، "محمود درويش".
-   - استخرج المؤسسات والجامعات كاملة: "جامعة النجاح الوطنية"، "الجامعة الأمريكية في بيروت"، "منظمة الصحة العالمية".
-   - استخرج الأماكن المركبة كاملة: "رام الله"، "بيت لحم"، "شرم الشيخ"، "كفر الشيخ".
-   - استخرج المصطلحات الطبية والأمراض كاملة: "مرض السكري"، "نقص السائل الأمنيوسي"، "اضطراب كلى الجنين"، "الأدوية المميعة للدم".
-2. لا تكرر نفس الكيان أبداً، ولا تدخل في حلقات تكرار.
-3. افصل حرف العطف (الواو) وسوابق الجر عن بداية الكيان: اكتب "القدس" وليس "والقدس"، "دمشق" وليس "بدمشق".
+قواعد جوهرية حاسمة:
+1. الفهم السياقي الصارم (Contextual Disambiguation):
+   - الكلمة لا تصنف بمعزل عن سياقها في الجملة أبداً! الكلمة الواحدة تتغير فئتها جذرياً حسب وظيفتها ودلالتها في النص:
+     * السياق المؤسسي مقابل الجغرافي: "واشنطن" في (أعلنت واشنطن) هي ORGANIZATION، وفي (سافرت إلى واشنطن) هي LOCATION.
+     * السياق الزمني مقابل الجغرافي: "المغرب" في (صلاة المغرب) هي DATE، وفي (مملكة المغرب) هي LOCATION.
+     * السياق الكيميائي مقابل أسماء الأشخاص: "النحاس" في (عنصر النحاس) هي CHEMICAL، وفي (أحمد النحاس) هي PERSON.
+     * السياق المجازي: "الذهب الأسود" في سياق الطاقة هو CHEMICAL وليس معدن الذهب.
+2. الكيان يجب أن يكون اسماً أو مركباً اسمياً صريحاً فقط (Noun Phrase):
+   - يُمنع منعاً باتاً استخراج الأفعال أو الجمل الفعلية (مثل: "لم تحصل"، "تؤدي"، "يبدأ"، "قام"، "كان").
+   - يُمنع استخراج أسماء الأعداد والمقادير المبهمة المنفردة (مثل: "بضع"، "عدة"، "بعض"، "قليل").
+   - المصطلحات العلمية الطبية تكون أسماء صريحة: استخرج "نقص الكالسيوم" (نعم ككيان)، ولا تستخرج "لم تحصل" (فعل وجملة).
+3. الكيان يجب أن يكون كاملاً وغير مجتزأ أبداً (Full Entity Span):
+   - استخرج الأسماء المركبة كاملة: "هشاشة العظام" ككيان واحد، "صلاح الدين الأيوبي"، "ثنائيات الفلقة"، "المجموعة الحادية عشرة".
+   - استخرج المؤسسات والجامعات كاملة: "جامعة النجاح الوطنية"، "منظمة الصحة العالمية".
+4. لا تكرر نفس الكيان أبداً.
+5. افصل حرف العطف (الواو) وسوابق الجر عن بداية الكيان: اكتب "القدس" وليس "والقدس"، "الكالسيوم" وليس "بالكالسيوم".
 
 الفئات المدعومة (Categories):
-- UNIVERSITY: جامعات، كليات، معاهد أكاديمية وبحثية.
-- LOCATION: مدن، دول، معالم جغرافية.
-- PERSON: أسماء أشخاص، علماء، باحثين، أطباء، قادة.
+- SPECIES: كائنات حية، نباتات، أشجار، حيوانات، طيور، كائنات دقيقة، فصائل أحيائية (مثل: البلوط، السنديان، الصقر، الإشريكية القولونية).
+- PHENOMENON: ظواهر طبيعية، فيزيائية، فلكية، عمليات حيوية وظواهر نادرة (مثل: مارسيسنتية، التمثيل الضوئي، الكسوف، الاحتباس الحراري).
+- WORK: كتب، مخطوطات، مؤلفات، أطروحات، معاهدات، دواوين شعرية (مثل: كتاب العبر، مقدمة ابن خلدون، ديوان المتنبي).
+- EVENT: أحداث تاريخية، معارك، ثورات، مؤتمرات، أزمات ومفارق تاريخية (مثل: معركة حطين، الثورة الصناعية).
+- CHEMICAL: مركبات كيميائية، عناصر، معادن، مواد صلبة أو سائلة (مثل: حمض الكبريتيك، كلوريد الصوديوم، الهيدروجين).
+- ANATOMY: أعضاء، أنسجة، أجهزة حيوية، خلايا، تراكيب بيولوجية (مثل: الكلى، الكبد، الشريان الأبهر، غشاء الخلية).
+- LAW_RULE: نظريات وقوانين علمية، قواعد فقهية، تشريعات ومبادئ (مثل: نظرية النسبية، قانون نيوتن، الضرورات تبيح المحظورات).
+- PERIOD: عصور تاريخية، حقب جيولوجية، دول وحضارات (مثل: العصر العباسي، العصر الطباشيري، الحضارة البابلية).
+- ASTRONOMY: أجرام سماوية، كواكب، نجوم، مجرات، سدم (مثل: المشتري، مجرة أندروميدا، سديم الجبار).
+- ARTIFACT: آلات، أدوات علمية وتراثية، أسلحة، آثار تاريخية (مثل: الأسطرلاب، المجهر، حجر رشيد).
+- UNIVERSITY: جامعات، كليات، مراكز بحثية وأكاديمية.
+- LOCATION: مدن، دول، عواصم، معالم جغرافية وتضاريس.
+- PERSON: أسماء أشخاص، علماء، باحثين، أطباء، قادة، فلاسفة.
 - ORGANIZATION: مؤسسات، وزارات، شركات، مستشفيات، منظمات دولية.
-- DISEASE: أمراض، متلازمات، اعتلالات، مشكلات صحية (مثل: الربو، أمراض القلب، الجفاف، جدري الماء).
-- MEDICAL_TERM: أدوية (ألترافين، الإيبوبروفين)، مستحضرات، أعضاء حيوية (الكلى، الكبد)، سوائل ومصطلحات طبية.
-- TECHNOLOGY: تقنيات، أدوات، برمجيات، نظم ذكاء اصطناعي.
-- FIELD: مجالات وتخصصات أكاديمية (الكيمياء، الطب، الصيدلة، الفيزياء).
-- CONCEPT: حالات فسيولوجية (الحمل، الرضاعة)، مفاهيم علمية وإحصائية، فئات (كبار السن، الأطفال).
-- DATE: تواريخ، أزمنة، مدد وفترات زمنية (الأسبوع 20، الثلث الأخير، 3 أشهر، عام 1965).
+- DISEASE: أمراض، متلازمات، اعتلالات، مشكلات صحية ونفسية.
+- MEDICAL_TERM: أدوية، مستحضرات طبية، لقاحات، مصطلحات علاجية.
+- TECHNOLOGY: تقنيات، أدوات برمجية، خوارزميات، نظم حاسوبية وذكاء اصطناعي.
+- FIELD: مجالات وتخصصات أكاديمية (علم النبات، الفيزياء النظرية، الفلسفة الإسلامية).
+- CONCEPT: مفاهيم ونماذج علمية، حالات فسيولوجية، فئات وتصنيفات (مثل: ثنائيات الفلقة، الحمل، كبار السن).
+- DATE: تواريخ، أزمنة، فصول سنة، مدد وحقب زمنية.
+- OTHER: أي كيان علمي أو معرفي مهم لا ينطبق عليه ما سبق بدقة.
+
+حقل الوصف العربي الدقيق (label_ar):
+لكل كيان، اكتب في "label_ar" وصفاً تخصصياً موجزاً ودقيقاً يوضح طبيعة الكيان (مثال: "شجرة حرجية"، "ظاهرة نباتية"، "تصنيف بيولوجي"، "عصر جيولوجي"، "مؤلَّف تراثي"، "مركب كيميائي").
 
 شروط الإخراج:
 أعد فقط مصفوفة JSON صالحة داخل كائن "entities"، مثل:
-{"entities": [{"text": "ألترافين", "category": "MEDICAL_TERM", "confidence": 0.99}, {"text": "الربو", "category": "DISEASE", "confidence": 0.98}]}
+{"entities": [{"text": "البلوط", "category": "SPECIES", "label_ar": "شجرة حرجية", "confidence": 0.99}, {"text": "مارسيسنتية", "category": "PHENOMENON", "label_ar": "ظاهرة نباتية", "confidence": 0.98}, {"text": "ثنائيات الفلقة", "category": "CONCEPT", "label_ar": "تصنيف بيولوجي", "confidence": 0.97}]}
 """
 
 
@@ -145,8 +167,9 @@ class GroqLLMNER:
                         entities.append({
                             "text": e_text,
                             "category": cat,
+                            "label_ar": item.get("label_ar"),
                             "confidence": round(conf, 4),
-                            "source": f"Groq_{model_candidate.split('/')[-1]}",
+                            "source": "Groq",
                             "start_char": start_char,
                             "end_char": end_char,
                         })
@@ -225,23 +248,54 @@ class GroqLLMNER:
 
     def _standardize_category(self, cat_raw: str) -> str:
         """Normalizes and standardizes Arabic/English raw category labels."""
-        cat_upper = cat_raw.upper()
+        cat_upper = cat_raw.upper().strip()
 
+        # Direct enum matches
+        VALID_CATEGORIES = {
+            "SPECIES", "PHENOMENON", "CHEMICAL", "PERIOD", "WORK", "EVENT",
+            "ANATOMY", "LAW_RULE", "ASTRONOMY", "ARTIFACT", "UNIVERSITY",
+            "LOCATION", "PERSON", "ORGANIZATION", "DISEASE", "MEDICAL_TERM",
+            "TECHNOLOGY", "FIELD", "CONCEPT", "DATE", "OTHER"
+        }
+        if cat_upper in VALID_CATEGORIES:
+            return cat_upper
+
+        # Semantic mappings
+        if any(k in cat_raw for k in ["نبات", "كائن", "شجر", "حيوان", "فصيل", "طائر", "بكتير"]) or any(k in cat_upper for k in ["SPEC", "PLANT", "ANIMAL", "BOTAN"]):
+            return "SPECIES"
+        if any(k in cat_raw for k in ["ظاهر", "عملية حيوي"]) or "PHENOMEN" in cat_upper:
+            return "PHENOMENON"
+        if any(k in cat_raw for k in ["كيميا", "مركب", "عنصر", "فلز", "سبيك", "معدن"]) or any(k in cat_upper for k in ["CHEM", "ALLOY", "METAL", "ELEMENT"]):
+            return "CHEMICAL"
+        if any(k in cat_raw for k in ["عصر", "حقبة", "حضار", "قرن", "إمبراطور"]) or any(k in cat_upper for k in ["PERIOD", "ERA", "EPOCH", "CIVILIZATION"]):
+            return "PERIOD"
+        if any(k in cat_raw for k in ["كتاب", "مؤلف", "مخطوط", "وثيق", "ديوان", "أطروح", "معاهد"]) or any(k in cat_upper for k in ["WORK", "BOOK", "MANUSCRIPT"]):
+            return "WORK"
+        if any(k in cat_raw for k in ["حدث", "معرك", "ثور", "مؤتمر", "حرب"]) or any(k in cat_upper for k in ["EVENT", "BATTLE", "WAR"]):
+            return "EVENT"
+        if any(k in cat_raw for k in ["عضو", "نسيج", "خلايا", "خلية", "شريان", "قلب", "كبد", "كلية"]) or "ANATOM" in cat_upper:
+            return "ANATOMY"
+        if any(k in cat_raw for k in ["قانون", "نظري", "قاعد", "فقه", "دستور"]) or any(k in cat_upper for k in ["LAW", "RULE", "THEORY"]):
+            return "LAW_RULE"
+        if any(k in cat_raw for k in ["فلك", "كوكب", "نجم", "مجر", "سديم"]) or any(k in cat_upper for k in ["ASTRON", "PLANET", "STAR", "GALAXY"]):
+            return "ASTRONOMY"
+        if any(k in cat_raw for k in ["أداة", "آلة", "أثر", "أسطرلاب"]) or any(k in cat_upper for k in ["ARTIFACT", "TOOL"]):
+            return "ARTIFACT"
         if any(k in cat_raw for k in ["جامع", "كلي", "معهد", "أكاديم"]) or any(k in cat_upper for k in ["UNIV", "COLLEGE", "INSTITUT"]):
             return "UNIVERSITY"
         if any(k in cat_raw for k in ["شخص", "عالم", "باحث", "مؤسس", "شاعر", "ملك", "رئيس", "طبيب", "أستاذ"]) or "PER" in cat_upper:
             return "PERSON"
-        if any(k in cat_raw for k in ["موقع", "مكان", "مدين", "دول", "جغراف", "بلد"]) or any(k in cat_upper for k in ["LOC", "CITY", "PLACE"]):
+        if any(k in cat_raw for k in ["موقع", "مكان", "مدين", "دول", "جغراف", "بلد", "جزير"]) or any(k in cat_upper for k in ["LOC", "CITY", "PLACE", "ISLAND"]):
             return "LOCATION"
         if any(k in cat_raw for k in ["مؤسس", "منظم", "شرك", "وزار", "مستشف", "مركز", "نادي", "جمع"]) or "ORG" in cat_upper:
             return "ORGANIZATION"
         if any(k in cat_raw for k in ["مرض", "متلازم", "اعتلال", "وباء", "عرض", "مشكل"]) or any(k in cat_upper for k in ["DISEASE", "CONDITION", "SYMPTOM", "DISORDER"]):
             return "DISEASE"
-        if any(k in cat_raw for k in ["طب", "صيدل", "مناع", "دواء", "علاج", "صحي", "عقار", "عضو", "جنين", "سائل"]) or any(k in cat_upper for k in ["MED", "HEALTH", "DRUG", "PHARMA", "ANATOMY"]):
+        if any(k in cat_raw for k in ["طب", "صيدل", "مناع", "دواء", "علاج", "صحي", "عقار"]) or any(k in cat_upper for k in ["MED", "HEALTH", "DRUG", "PHARMA"]):
             return "MEDICAL_TERM"
-        if any(k in cat_raw for k in ["تقني", "برمج", "حاسوب", "ذكاء", "نظام", "أداة"]) or "TECH" in cat_upper:
+        if any(k in cat_raw for k in ["تقني", "برمج", "حاسوب", "ذكاء", "نظام", "خوارزم"]) or "TECH" in cat_upper:
             return "TECHNOLOGY"
-        if any(k in cat_raw for k in ["تاريخ", "زمن", "عام", "سنة", "عصر", "شهر", "أسبوع", "يوم", "فترة", "مدة"]) or any(k in cat_upper for k in ["DATE", "TIME", "YEAR", "WEEK", "MONTH"]):
+        if any(k in cat_raw for k in ["تاريخ", "زمن", "عام", "سنة", "شهر", "أسبوع", "يوم", "فترة", "مدة"]) or any(k in cat_upper for k in ["DATE", "TIME", "YEAR", "WEEK", "MONTH"]):
             return "DATE"
         if any(k in cat_raw for k in ["تخصص", "حقل", "مجال", "علم"]) or "FIELD" in cat_upper:
             return "FIELD"

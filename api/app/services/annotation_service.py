@@ -1,6 +1,7 @@
 """Service layer for Annotation lifecycle and Semantic Search."""
 
 import logging
+import urllib.parse
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
@@ -8,8 +9,22 @@ from sqlalchemy import or_, func
 from app.models.annotation import Annotation, DetectedEntity, WordRoot
 from app.schemas.annotation import AnnotationCreate, AnnotationUpdate
 from app.services.nlp.pipeline import nlp_pipeline
+from app.services.supabase_sync import supabase_sync
 
 logger = logging.getLogger(__name__)
+
+
+def canonicalize_url(u: Optional[str]) -> str:
+    """Canonicalizes URLs by unquoting percent-encoded characters, stripping hash fragments and trailing slashes."""
+    if not u:
+        return ""
+    try:
+        decoded = urllib.parse.unquote(u).strip()
+        if "#" in decoded:
+            decoded = decoded.split("#")[0]
+        return decoded.rstrip("/")
+    except Exception:
+        return (u or "").strip()
 
 
 class AnnotationService:
@@ -18,11 +33,15 @@ class AnnotationService:
     async def create_annotation(self, db: Session, payload: AnnotationCreate) -> Annotation:
         """Creates a new annotation and optionally runs the Arabic NLP analysis pipeline."""
         annotation = Annotation(
-            url=payload.url,
+            url=canonicalize_url(payload.url),
             page_title=payload.page_title,
             selected_text=payload.selected_text,
             note=payload.note,
             color=payload.color or "#FFE082",
+            user_id=payload.user_id,
+            author_name=payload.author_name or "باحث",
+            project_id=payload.project_id,
+            visibility=payload.visibility or "private",
         )
         db.add(annotation)
         db.commit()
@@ -66,6 +85,28 @@ class AnnotationService:
             except Exception as e:
                 logger.error(f"Error auto-analyzing annotation #{annotation.id}: {e}")
 
+        # Cloud Sync to Supabase in real-time
+        try:
+            entities_payload = []
+            if payload.auto_analyze and "analysis" in locals():
+                entities_payload = analysis.get("entities", [])
+            supabase_sync.sync_annotation(
+                annotation_data={
+                    "url": annotation.url,
+                    "page_title": annotation.page_title,
+                    "selected_text": annotation.selected_text,
+                    "note": annotation.note,
+                    "color": annotation.color,
+                    "user_id": annotation.user_id,
+                    "author_name": annotation.author_name,
+                    "project_id": annotation.project_id,
+                    "visibility": annotation.visibility,
+                },
+                entities_data=entities_payload,
+            )
+        except Exception as se:
+            logger.debug(f"Cloud sync notification error: {se}")
+
         return annotation
 
     def get_by_id(self, db: Session, annotation_id: int) -> Optional[Annotation]:
@@ -82,7 +123,13 @@ class AnnotationService:
         """Lists annotations, optionally filtered by page URL for browser extension restore."""
         query = db.query(Annotation)
         if url:
-            query = query.filter(Annotation.url == url)
+            target_norm = canonicalize_url(url)
+            all_records = query.order_by(Annotation.created_at.desc()).all()
+            matched = [
+                ann for ann in all_records
+                if canonicalize_url(ann.url) == target_norm
+            ]
+            return matched[skip:skip + limit]
         return query.order_by(Annotation.created_at.desc()).offset(skip).limit(limit).all()
 
     async def update_annotation(
@@ -153,6 +200,10 @@ class AnnotationService:
             return False
         db.delete(annotation)
         db.commit()
+        try:
+            supabase_sync.delete_annotation(annotation_id)
+        except Exception:
+            pass
         return True
 
     def search(
