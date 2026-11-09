@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "وَهَج — Wahaj Arabic Annotation",
+  "version": "1.0.0",
+  "description": "أداة التوثيق والتحليل الصرفي والكيانات للنصوص العربية على الويب — Academic Arabic Web Annotation & NLP Tool",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "storage",
+    "activeTab",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    },
+    "default_title": "وَهَج — Wahaj Annotation"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "css": ["styles/content.css"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

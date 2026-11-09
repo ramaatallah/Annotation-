@@ -1,0 +1,640 @@
+/* ================================================================
+   Wahaj / وَهَج — Content Script Injected CSS
+   Harmonized with the Website Design System (Ivory, Royal Navy, Gold)
+   ================================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700;800&display=swap');
+
+/* ——— Highlight Marks on Webpage ——— */
+.wahaj-highlight {
+  background-color: #fff3a3 !important;
+  color: #1b2547 !important;
+  border-radius: 4px;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+  padding: 2px 4px;
+  box-shadow: 0 1px 3px rgba(47, 68, 130, 0.1);
+  border-bottom: 2.5px solid #f1c75b;
+  display: inline;
+}
+
+.wahaj-highlight:hover {
+  background-color: #ffe082 !important;
+  box-shadow: 0 0 0 3px rgba(241, 199, 91, 0.45);
+}
+
+.wahaj-highlight:active {
+  transform: scale(0.99);
+}
+
+/* ——— Selection Popup (Floating Note Box) ——— */
+.wahaj-selection-popup {
+  position: absolute;
+  z-index: 2147483647;
+  background: #ffffff;
+  border: 1.5px solid #e8e2d4;
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 16px 45px rgba(27, 37, 71, 0.16), 0 2px 8px rgba(0, 0, 0, 0.04);
+  font-family: 'Tajawal', system-ui, -apple-system, sans-serif;
+  direction: rtl;
+  text-align: right;
+  min-width: 330px;
+  max-width: 450px;
+  color: #1b2547;
+  animation: wahaj-slide-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes wahaj-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.wahaj-popup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1.5px solid #e8e2d4;
+}
+
+.wahaj-popup-title {
+  color: #2f4482;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wahaj-popup-close {
+  background: none;
+  border: none;
+  color: #6b7280;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  transition: all 0.15s;
+  line-height: 1;
+}
+
+.wahaj-popup-close:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Selected text preview */
+.wahaj-selected-preview {
+  background: #faf7f0;
+  border: 1px solid #e8e2d4;
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  color: #1b2547;
+  font-size: 13px;
+  line-height: 1.7;
+  max-height: 80px;
+  overflow-y: auto;
+  font-weight: 500;
+  scrollbar-width: thin;
+  scrollbar-color: #cfc7b8 #f4efe6;
+}
+
+/* Note textarea */
+.wahaj-note-input {
+  width: 100%;
+  min-height: 70px;
+  background: #ffffff;
+  border: 1.5px solid #e8e2d4;
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: #1b2547;
+  font-size: 13px;
+  font-family: inherit;
+  direction: rtl;
+  resize: vertical;
+  outline: none;
+  transition: all 0.2s;
+  margin-bottom: 12px;
+  box-sizing: border-box;
+}
+
+.wahaj-note-input:focus {
+  border-color: #2f4482;
+  box-shadow: 0 0 0 3px rgba(47, 68, 130, 0.12);
+}
+
+.wahaj-note-input::placeholder {
+  color: #9ca3af;
+}
+
+/* Action buttons row */
+.wahaj-popup-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-start;
+}
+
+.wahaj-btn {
+  padding: 9px 18px;
+  border: none;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wahaj-btn-save {
+  background: linear-gradient(135deg, #2f4482, #22326b);
+  color: #ffffff;
+  box-shadow: 0 3px 10px rgba(47, 68, 130, 0.25);
+}
+
+.wahaj-btn-save:hover {
+  background: linear-gradient(135deg, #22326b, #1b2547);
+  transform: translateY(-1px);
+  box-shadow: 0 5px 15px rgba(47, 68, 130, 0.35);
+}
+
+.wahaj-btn-save:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.wahaj-btn-cancel {
+  background: #faf7f0;
+  color: #6b7280;
+  border: 1px solid #e8e2d4;
+}
+
+.wahaj-btn-cancel:hover {
+  background: #f3efe6;
+  color: #1b2547;
+}
+
+/* Loading spinner */
+.wahaj-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top: 2px solid #ffffff;
+  border-radius: 50%;
+  animation: wahaj-spin 0.6s linear infinite;
+}
+
+@keyframes wahaj-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ——— Interactive In-Page Tooltip Card (Appears on CLICK / HOVER) ——— */
+.wahaj-tooltip-card {
+  position: absolute;
+  z-index: 2147483646;
+  background: #ffffff;
+  border: 1.5px solid #2f4482;
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 18px 50px rgba(27, 37, 71, 0.2), 0 0 0 1px rgba(241, 199, 91, 0.25);
+  font-family: 'Tajawal', system-ui, -apple-system, sans-serif;
+  direction: rtl;
+  text-align: right;
+  min-width: 360px;
+  max-width: 480px;
+  max-height: 82vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  color: #1b2547;
+  animation: wahaj-slide-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  scrollbar-width: thin;
+  scrollbar-color: #cfc7b8 #f4efe6;
+}
+
+/* Card Header */
+.wahaj-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1.5px solid #e8e2d4;
+}
+
+.wahaj-card-title {
+  color: #2f4482;
+  font-size: 14px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wahaj-card-date {
+  color: #6b7280;
+  font-size: 11px;
+}
+
+/* Sections in Card */
+.wahaj-card-section {
+  margin-bottom: 12px;
+}
+
+.wahaj-section-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #2f4482;
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Note box */
+.wahaj-card-note,
+.wahaj-note-box {
+  background: #fff8e1;
+  border: 1px solid #f1c75b;
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: #1b2547;
+  font-size: 13px;
+  line-height: 1.6;
+  max-height: 90px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #cfc7b8 #f4efe6;
+}
+
+/* Selected Text box with scroll */
+.wahaj-card-selected-text,
+.wahaj-text-box {
+  background: #faf7f0;
+  border: 1px solid #e8e2d4;
+  border-radius: 10px;
+  padding: 9px 13px;
+  color: #1b2547;
+  font-size: 13.5px;
+  line-height: 1.8;
+  max-height: 110px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #cfc7b8 #f4efe6;
+}
+
+/* Entities list with scroll */
+.wahaj-entity-list,
+.wahaj-entities-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 115px;
+  overflow-y: auto;
+  padding: 4px 2px;
+  scrollbar-width: thin;
+  scrollbar-color: #cfc7b8 #f4efe6;
+}
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wahaj-entity-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #faf7f0;
+  border: 1px solid #e8e2d4;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.wahaj-entity-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Coordinated Category Badges */
+.wahaj-entity-badge[data-category="UNIVERSITY"] {
+  background: rgba(47, 68, 130, 0.1);
+  color: #2f4482;
+  border: 1px solid rgba(47, 68, 130, 0.3);
+}
+.wahaj-entity-badge[data-category="LOCATION"] {
+  background: rgba(2, 132, 199, 0.1);
+  color: #0284c7;
+  border: 1px solid rgba(2, 132, 199, 0.3);
+}
+.wahaj-entity-badge[data-category="PERSON"] {
+  background: rgba(217, 119, 6, 0.1);
+  color: #d97706;
+  border: 1px solid rgba(217, 119, 6, 0.3);
+}
+.wahaj-entity-badge[data-category="ORGANIZATION"] {
+  background: rgba(124, 58, 237, 0.1);
+  color: #7c3aed;
+  border: 1px solid rgba(124, 58, 237, 0.3);
+}
+.wahaj-entity-badge[data-category="DISEASE"],
+.wahaj-entity-badge[data-category="MEDICAL_TERM"] {
+  background: rgba(225, 29, 72, 0.1);
+  color: #e11d48;
+  border: 1px solid rgba(225, 29, 72, 0.3);
+}
+.wahaj-entity-badge[data-category="TECHNOLOGY"],
+.wahaj-entity-badge[data-category="CONCEPT"],
+.wahaj-entity-badge[data-category="FIELD"] {
+  background: rgba(13, 148, 136, 0.1);
+  color: #0d9488;
+  border: 1px solid rgba(13, 148, 136, 0.3);
+}
+.wahaj-entity-badge[data-category="SPECIES"] {
+  background: rgba(21, 128, 61, 0.12);
+  color: #15803d;
+  border: 1px solid rgba(21, 128, 61, 0.35);
+}
+.wahaj-entity-badge[data-category="PHENOMENON"] {
+  background: rgba(2, 132, 199, 0.12);
+  color: #0284c7;
+  border: 1px solid rgba(2, 132, 199, 0.35);
+}
+.wahaj-entity-badge[data-category="WORK"] {
+  background: rgba(180, 83, 9, 0.12);
+  color: #b45309;
+  border: 1px solid rgba(180, 83, 9, 0.35);
+}
+.wahaj-entity-badge[data-category="EVENT"] {
+  background: rgba(185, 28, 28, 0.12);
+  color: #b91c1c;
+  border: 1px solid rgba(185, 28, 28, 0.35);
+}
+.wahaj-entity-badge[data-category="CHEMICAL"] {
+  background: rgba(124, 58, 237, 0.12);
+  color: #7c3aed;
+  border: 1px solid rgba(124, 58, 237, 0.35);
+}
+.wahaj-entity-badge[data-category="ANATOMY"] {
+  background: rgba(190, 18, 60, 0.12);
+  color: #be123c;
+  border: 1px solid rgba(190, 18, 60, 0.35);
+}
+.wahaj-entity-badge[data-category="LAW_RULE"] {
+  background: rgba(67, 56, 202, 0.12);
+  color: #4338ca;
+  border: 1px solid rgba(67, 56, 202, 0.35);
+}
+.wahaj-entity-badge[data-category="PERIOD"] {
+  background: rgba(194, 65, 12, 0.12);
+  color: #c2410c;
+  border: 1px solid rgba(194, 65, 12, 0.35);
+}
+.wahaj-entity-badge[data-category="ASTRONOMY"] {
+  background: rgba(30, 64, 175, 0.12);
+  color: #1e40af;
+  border: 1px solid rgba(30, 64, 175, 0.35);
+}
+.wahaj-entity-badge[data-category="ARTIFACT"] {
+  background: rgba(133, 77, 14, 0.12);
+  color: #854d0e;
+  border: 1px solid rgba(133, 77, 14, 0.35);
+}
+.wahaj-entity-badge[data-category="DATE"] {
+  background: rgba(202, 138, 4, 0.1);
+  color: #ca8a04;
+  border: 1px solid rgba(202, 138, 4, 0.3);
+}
+
+/* Confidence Bar */
+.wahaj-confidence-bar-track {
+  width: 100%;
+  height: 6px;
+  background: #e8e2d4;
+  border-radius: 4px;
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.wahaj-confidence-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #f1c75b, #10b981);
+  transition: width 0.4s ease;
+}
+
+/* Roots display with scroll */
+.wahaj-roots-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 120px;
+  overflow-y: auto;
+  padding: 4px 2px;
+  scrollbar-width: thin;
+  scrollbar-color: #cfc7b8 #f4efe6;
+}
+
+.wahaj-root-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: #faf7f0;
+  border: 1px solid #e8e2d4;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.wahaj-root-word {
+  color: #1b2547;
+  font-weight: 600;
+}
+
+.wahaj-root-arrow {
+  color: #8a5a00;
+  font-size: 11px;
+}
+
+.wahaj-root-value {
+  color: #2f4482;
+  font-weight: 800;
+  font-size: 13.5px;
+  background: #e9d9ff;
+  padding: 1px 7px;
+  border-radius: 5px;
+}
+
+.wahaj-root-trilateral-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.15);
+  color: #059669;
+  font-weight: 700;
+}
+
+.wahaj-root-quad-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(124, 58, 237, 0.15);
+  color: #7c3aed;
+  font-weight: 700;
+}
+
+.wahaj-root-unresolved-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #e8e2d4;
+  color: #6b7280;
+}
+
+/* Edit / Delete buttons on tooltip card */
+.wahaj-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #e8e2d4;
+}
+
+.wahaj-card-btn {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  font-family: inherit;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wahaj-card-btn-edit {
+  background: rgba(47, 68, 130, 0.08);
+  color: #2f4482;
+  border: 1px solid rgba(47, 68, 130, 0.25);
+}
+.wahaj-card-btn-edit:hover {
+  background: #2f4482;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.wahaj-card-btn-delete {
+  background: rgba(225, 29, 72, 0.08);
+  color: #e11d48;
+  border: 1px solid rgba(225, 29, 72, 0.25);
+}
+.wahaj-card-btn-delete:hover {
+  background: #e11d48;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+/* Notification Toast */
+.wahaj-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  background: #22326b;
+  color: #faf7f0;
+  border: 1.5px solid #f1c75b;
+  border-radius: 12px;
+  padding: 10px 24px;
+  font-family: 'Tajawal', system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 10px 30px rgba(34, 50, 107, 0.35);
+  animation: wahaj-toast-in 0.3s ease-out;
+}
+
+.wahaj-toast.wahaj-toast-success {
+  border-color: #10b981;
+}
+
+.wahaj-toast.wahaj-toast-error {
+  border-color: #ef4444;
+}
+
+@keyframes wahaj-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+
+/* Custom Elegant Scrollbars for Extension Popups and Tooltip Cards */
+.wahaj-tooltip-card::-webkit-scrollbar,
+.wahaj-card-selected-text::-webkit-scrollbar,
+.wahaj-text-box::-webkit-scrollbar,
+.wahaj-entity-list::-webkit-scrollbar,
+.wahaj-entities-list::-webkit-scrollbar,
+.wahaj-roots-grid::-webkit-scrollbar,
+.wahaj-card-note::-webkit-scrollbar,
+.wahaj-note-box::-webkit-scrollbar,
+.wahaj-selected-preview::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.wahaj-tooltip-card::-webkit-scrollbar-track,
+.wahaj-card-selected-text::-webkit-scrollbar-track,
+.wahaj-text-box::-webkit-scrollbar-track,
+.wahaj-entity-list::-webkit-scrollbar-track,
+.wahaj-entities-list::-webkit-scrollbar-track,
+.wahaj-roots-grid::-webkit-scrollbar-track,
+.wahaj-card-note::-webkit-scrollbar-track,
+.wahaj-note-box::-webkit-scrollbar-track,
+.wahaj-selected-preview::-webkit-scrollbar-track {
+  background: #f4efe6;
+  border-radius: 6px;
+}
+
+.wahaj-tooltip-card::-webkit-scrollbar-thumb,
+.wahaj-card-selected-text::-webkit-scrollbar-thumb,
+.wahaj-text-box::-webkit-scrollbar-thumb,
+.wahaj-entity-list::-webkit-scrollbar-thumb,
+.wahaj-entities-list::-webkit-scrollbar-thumb,
+.wahaj-roots-grid::-webkit-scrollbar-thumb,
+.wahaj-card-note::-webkit-scrollbar-thumb,
+.wahaj-note-box::-webkit-scrollbar-thumb,
+.wahaj-selected-preview::-webkit-scrollbar-thumb {
+  background: #cfc7b8;
+  border-radius: 6px;
+}
+
+.wahaj-tooltip-card::-webkit-scrollbar-thumb:hover,
+.wahaj-card-selected-text::-webkit-scrollbar-thumb:hover,
+.wahaj-entity-list::-webkit-scrollbar-thumb:hover,
+.wahaj-roots-grid::-webkit-scrollbar-thumb:hover {
+  background: #2f4482;
+}

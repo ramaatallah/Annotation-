@@ -1,0 +1,4 @@
+# Additional libraries for local BERT model & full CAMeL tools
+transformers>=4.38.0
+torch>=2.0.0
+camel-tools>=1.5.2

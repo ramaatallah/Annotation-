@@ -1,4 +1,3 @@
-
 # Dependencies
 node_modules/
 
@@ -9,6 +8,13 @@ dist/
 .env
 .env.*
 !.env.example
+.env.local
+extension/.env
+extension/.env.*
+!extension/.env.example
+api/.env
+api/.env.*
+!api/.env.example
 
 # Logs
 npm-debug.log*
@@ -23,12 +29,14 @@ Thumbs.db
 .vscode/
 .idea/
 
-.env.local
-
-
 # Python virtual environment
 .venv/
 venv/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
 
 # Python cache
 __pycache__/
@@ -37,9 +45,3 @@ __pycache__/
 # Model cache
 .cache/
 .cache/huggingface/
-
-# Environment secrets
-.env
-api/.env
-api/.env.*
-!api/.env.example

@@ -1,77 +1,83 @@
-# -*- coding: utf-8 -*-
-"""
-FastAPI Server Root Entry Point.
-Delegates to the modular app package (app.main:app)
-while maintaining backward-compatible endpoints for legacy callers.
+"""Main API Server Entrypoint.
+
+Wahaj / Hashiya Arabic Academic NLP & Knowledge Engine.
+Exposes modern v1 modular routes and provides backward compatibility for website callers.
 """
 
 import sys
 import os
+from typing import Optional
+from pydantic import BaseModel, Field
 
-# Ensure api directory and project root are on sys.path
+# Ensure api directory is on sys.path
 _current_dir = os.path.dirname(os.path.abspath(__file__))
 if _current_dir not in sys.path:
     sys.path.insert(0, _current_dir)
 
 from app.main import app
-from app.nlp.ner_local import extract_local_entities
-from app.nlp.ner_llm import extract_llm_entities
-from app.nlp.fusion import fuse_entities
-from pydantic import BaseModel, Field
-from typing import Optional
+from app.services.nlp.pipeline import nlp_pipeline
 
 
-class LegacyAnalyzeRequest(BaseModel):
-    text: str = Field(min_length=1, max_length=10000)
-    page_url: Optional[str] = None
-    title: Optional[str] = None
+class WebsiteAnalyzeRequest(BaseModel):
+    text: str = Field(min_length=1)
+    url: Optional[str] = None
+    page_title: Optional[str] = None
 
 
-@app.get("/")
-def home():
-    return {"status": "ok", "message": "Annotation NER API is running"}
-
-
-@app.post("/analyze")
-async def legacy_analyze(req: LegacyAnalyzeRequest):
+@app.post("/analyze", tags=["Website Compatibility"])
+async def website_analyze_endpoint(req: WebsiteAnalyzeRequest):
     """
-    Backward-compatible /analyze endpoint.
-    Allows callers to analyze text without strict Bearer token requirement during transition.
+    Backward-compatible /analyze endpoint for website client.
+    Normalizes response structure so website TryIt and Live Analysis work instantly.
     """
     text = (req.text or "").strip()
     if not text:
         return {"entities": []}
 
-    local_ents = extract_local_entities(text)
-    llm_ents = await extract_llm_entities(text)
-    fused, _ = fuse_entities(text, local_ents, llm_ents)
+    result = await nlp_pipeline.analyze_text(text)
 
-    # Format in legacy-compatible structure
-    legacy_entities = []
-    for e in fused:
-        primary_root = None
-        for w in e.get("words", []):
-            if w.get("status") in ("found", "quadrilateral") and w.get("root"):
-                primary_root = w.get("root")
+    # Normalize entities for website frontend expectations
+    normalized_entities = []
+    for ent in result.get("entities", []):
+        # Extract primary root from words if available
+        primary_root = "—"
+        for r in ent.get("roots", []):
+            if r.get("root"):
+                primary_root = r["root"]
                 break
 
-        legacy_entities.append({
-            "text": e["text"],
-            "type": e["type"],
-            "type_ar": e.get("type_ar"),
-            "subtype_ar": e.get("subtype_ar"),
-            "domain": e.get("domain"),
+        category = ent.get("category", "OTHER")
+        confidence = float(ent.get("confidence", 0.95))
+        label_ar = ent.get("label_ar")
+
+        normalized_entities.append({
+            "text": ent.get("text"),
+            "type": category,
+            "label": label_ar or category,
+            "label_ar": label_ar,
+            "confidence": confidence,
+            "score": round(confidence * 100, 1) if confidence <= 1.0 else round(confidence, 1),
+            "start": ent.get("start_char", 0),
+            "end": ent.get("end_char", len(ent.get("text", ""))),
             "root": primary_root,
-            "words": e.get("words", []),
-            "start": e.get("start"),
-            "end": e.get("end"),
-            "source": e.get("source"),
-            "confidence": e.get("llm_self_confidence") or e.get("bert_score") or 0.95,
+            "roots": ent.get("roots", []),
+            "source": ent.get("source", "Hybrid"),
         })
 
-    return {"entities": legacy_entities}
+    return {
+        "entities": normalized_entities,
+        "all_roots": result.get("all_roots", []),
+        "original_text": text,
+        "processing_time_ms": result.get("processing_time_ms", 0),
+    }
 
 
 if __name__ == "__main__":
     import uvicorn
+    print("=" * 65)
+    print(" Starting Wahaj / Hashiya Arabic Annotation & NLP Server")
+    print(" Documentation: http://localhost:8000/docs")
+    print(" Legacy endpoint: http://localhost:8000/analyze")
+    print(" V1 endpoints: http://localhost:8000/v1/analyze")
+    print("=" * 65)
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

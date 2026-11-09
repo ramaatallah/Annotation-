@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 
 import Navbar from '../components/Navbar';
@@ -13,13 +12,22 @@ import LibraryPage from './LibraryPage';
 import HowItWorksPage from './HowItWorksPage';
 
 export default function HomePage() {
-  const [page, setPage] = useState('home');
+  const [page, setPage] = useState(() => {
+    // استرجاع الصفحة النشطة بعد الـ refresh إما من الـ hash أو localStorage
+    const hash = window.location.hash.replace('#', '');
+    if (hash && ['home', 'try', 'library', 'how', 'about'].includes(hash)) {
+      return hash;
+    }
+    return localStorage.getItem('wahaj_active_page') || 'home';
+  });
   const [loginOpen, setLoginOpen] = useState(false);
 
   const openLogin = () => setLoginOpen(true);
 
   const goTo = (id) => {
     setPage(id);
+    localStorage.setItem('wahaj_active_page', id);
+    window.location.hash = id;
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 

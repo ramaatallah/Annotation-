@@ -1,0 +1,10 @@
+{
+  "name": "wahaj-extension",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Wahaj Chrome Extension (Load directly unpacked in chrome://extensions)",
+  "scripts": {
+    "build": "echo Extension is ready to load unpacked directly from extension/",
+    "dev": "echo Extension ready for development"
+  }
+}

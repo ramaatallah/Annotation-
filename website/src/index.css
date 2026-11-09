@@ -34,3 +34,20 @@ a { color: inherit; text-decoration: none; }
 .btn-primary:hover { background: var(--navy-dark); }
 .btn-outline { background: var(--surface); color: var(--navy); border-color: var(--border); }
 .btn-outline:hover { border-color: var(--navy); }
+
+/* Scrollbar styling for comfortable reading */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f4efe6;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #cfc7b8;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--navy);
+}
