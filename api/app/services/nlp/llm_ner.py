@@ -33,41 +33,48 @@ SYSTEM_PROMPT = """أنت نظام ذكاء اصطناعي أكاديمي فائ
    - يُمنع منعاً باتاً استخراج الأفعال أو الجمل الفعلية (مثل: "لم تحصل"، "تؤدي"، "يبدأ"، "قام"، "كان").
    - يُمنع استخراج أسماء الأعداد والمقادير المبهمة المنفردة (مثل: "بضع"، "عدة"، "بعض"، "قليل").
    - المصطلحات العلمية الطبية تكون أسماء صريحة: استخرج "نقص الكالسيوم" (نعم ككيان)، ولا تستخرج "لم تحصل" (فعل وجملة).
-3. الكيان يجب أن يكون كاملاً وغير مجتزأ أبداً (Full Entity Span):
-   - استخرج الأسماء المركبة كاملة: "هشاشة العظام" ككيان واحد، "صلاح الدين الأيوبي"، "ثنائيات الفلقة"، "المجموعة الحادية عشرة".
+3. الكيان يجب أن يكون كاملاً وغير مجتزأ أبداً ومكتمل الحروف (Full Word & Entity Span):
+   - يُمنع منعاً باتاً بتر الحروف الأخيرة من الكلمة (مثل اقتطاع التاء المربوطة أو الياء؛ لا تكتب 'الطّاق' بل 'الطاقة'، ولا تكتب 'غاز الطبي' بل 'الغاز الطبيعي').
+   - استخرج الأسماء المركبة كاملة: "هشاشة العظام" ككيان واحد، "صلاح الدين الأيوبي"، "ثنائيات الفلقة"، "المجموعة الحادية عشرة"، "ثنائي أكسيد الكربون".
    - استخرج المؤسسات والجامعات كاملة: "جامعة النجاح الوطنية"، "منظمة الصحة العالمية".
-4. لا تكرر نفس الكيان أبداً.
-5. افصل حرف العطف (الواو) وسوابق الجر عن بداية الكيان: اكتب "القدس" وليس "والقدس"، "الكالسيوم" وليس "بالكالسيوم".
+4. قاعدة التخصيص الدلالي الصارم (Specific-First Hierarchy):
+   - تجنب تماماً حشر كل شيء تحت مفهوم علمي CONCEPT؛ هذه الفئة محجوزة فقط للمفاهيم المجردة والنظريات العامة.
+   - أي مركب كيميائي، عنصر، غاز، فلز، سبيكة، أو وقود هيدروكربوني (مثل: ثنائي أكسيد الكربون، الميثان، النحاس، الكالسيوم، البترول، الفحم) يصنف إلزامياً CHEMICAL (🧪 مركب كيميائي).
+   - أي عملية فيزيائية أو حركة طبيعية أو مناخية أو دورة بيئية (مثل: الاحتباس الحراري، المد والجزر، حركة الأمواج، الرياح، التمثيل الضوئي) تصنف إلزامياً PHENOMENON (🔬 ظاهرة علمية).
+   - أي جرم سماوي، كوكب، نجم، شمس، قمر يصنف إلزامياً ASTRONOMY (🌌 جرم فلكي).
+   - أي دولة، مدينة، إقليم، أو تجمع جيوسياسي (مثل: جزيرة قبرص، دول العالم، الشرق الأوسط) يصنف إلزامياً LOCATION (📍 موقع جغرافي).
+5. لا تكرر نفس الكيان أبداً.
+6. افصل حرف العطف (الواو) وسوابق الجر عن بداية الكيان: اكتب "القدس" وليس "والقدس"، "الكالسيوم" وليس "بالكالسيوم".
 
 الفئات المدعومة (Categories):
 - SPECIES: كائنات حية، نباتات، أشجار، حيوانات، طيور، كائنات دقيقة، فصائل أحيائية (مثل: البلوط، السنديان، الصقر، الإشريكية القولونية).
-- PHENOMENON: ظواهر طبيعية، فيزيائية، فلكية، عمليات حيوية وظواهر نادرة (مثل: مارسيسنتية، التمثيل الضوئي، الكسوف، الاحتباس الحراري).
+- PHENOMENON: ظواهر طبيعية، فيزيائية، فلكية، مناخية، عمليات حيوية وحركات طاقية (مثل: الاحتباس الحراري، التمثيل الضوئي، الكسوف، المد والجزر، حركة الأمواج، الرياح).
 - WORK: كتب، مخطوطات، مؤلفات، أطروحات، معاهدات، دواوين شعرية (مثل: كتاب العبر، مقدمة ابن خلدون، ديوان المتنبي).
 - EVENT: أحداث تاريخية، معارك، ثورات، مؤتمرات، أزمات ومفارق تاريخية (مثل: معركة حطين، الثورة الصناعية).
-- CHEMICAL: مركبات كيميائية، عناصر، معادن، مواد صلبة أو سائلة (مثل: حمض الكبريتيك، كلوريد الصوديوم، الهيدروجين).
-- ANATOMY: أعضاء، أنسجة، أجهزة حيوية، خلايا، تراكيب بيولوجية (مثل: الكلى، الكبد، الشريان الأبهر، غشاء الخلية).
+- CHEMICAL: مركبات كيميائية، عناصر، معادن، غازات، سبائك، وقود أحفوري، مواد طبيعية وصلبة وسائلة (مثل: ثنائي أكسيد الكربون، النحاس، القصدير، البرونز، الكالسيوم، البترول، الفحم، حمض الكبريتيك، الهيدروجين).
+- ANATOMY: أعضاء، أنسجة، أجهزة حيوية، خلايا، تراكيب بيولوجية (مثل: العظام، الكلى، الكبد، الشريان الأبهر، غشاء الخلية).
 - LAW_RULE: نظريات وقوانين علمية، قواعد فقهية، تشريعات ومبادئ (مثل: نظرية النسبية، قانون نيوتن، الضرورات تبيح المحظورات).
-- PERIOD: عصور تاريخية، حقب جيولوجية، دول وحضارات (مثل: العصر العباسي، العصر الطباشيري، الحضارة البابلية).
-- ASTRONOMY: أجرام سماوية، كواكب، نجوم، مجرات، سدم (مثل: المشتري، مجرة أندروميدا، سديم الجبار).
+- PERIOD: عصور تاريخية، حقب جيولوجية، دول وحضارات (مثل: العصر النحاسي، العصر البرونزي، العصر العباسي، الحضارة البابلية).
+- ASTRONOMY: أجرام سماوية، كواكب، نجوم، شمس، قمر، مجرات، سدم (مثل: الشمس، المشتري، مجرة أندروميدا).
 - ARTIFACT: آلات، أدوات علمية وتراثية، أسلحة، آثار تاريخية (مثل: الأسطرلاب، المجهر، حجر رشيد).
 - UNIVERSITY: جامعات، كليات، مراكز بحثية وأكاديمية.
-- LOCATION: مدن، دول، عواصم، معالم جغرافية وتضاريس.
+- LOCATION: مدن، دول، عواصم، معالم جغرافية وتضاريس، أقاليم وتجمعات دول (مثل: جزيرة قبرص، دول العالم).
 - PERSON: أسماء أشخاص، علماء، باحثين، أطباء، قادة، فلاسفة.
-- ORGANIZATION: مؤسسات، وزارات، شركات، مستشفيات، منظمات دولية.
-- DISEASE: أمراض، متلازمات، اعتلالات، مشكلات صحية ونفسية.
+- ORGANIZATION: مؤسسات، وزارات، شركات، مستشفيات، منظمات وهيئات دولية (مثل: الأمم المتحدة، الاتحاد الأوروبي).
+- DISEASE: أمراض، متلازمات، اعتلالات، مشكلات صحية ونفسية (مثل: هشاشة العظام، السكري).
 - MEDICAL_TERM: أدوية، مستحضرات طبية، لقاحات، مصطلحات علاجية.
 - TECHNOLOGY: تقنيات، أدوات برمجية، خوارزميات، نظم حاسوبية وذكاء اصطناعي.
 - FIELD: مجالات وتخصصات أكاديمية (علم النبات، الفيزياء النظرية، الفلسفة الإسلامية).
-- CONCEPT: مفاهيم ونماذج علمية، حالات فسيولوجية، فئات وتصنيفات (مثل: ثنائيات الفلقة، الحمل، كبار السن).
-- DATE: تواريخ، أزمنة، فصول سنة، مدد وحقب زمنية.
+- CONCEPT: مفاهيم ونماذج علمية مجردة، فئات وتصنيفات، حالات فسيولوجية (مثل: ثنائيات الفلقة، الطاقة المتجددة، الموارد الطبيعية، سن البلوغ).
+- DATE: تواريخ، أزمنة، فصول سنة، مدد وحقب زمنية (مثل: 5000 إلى 4000 سنة قبل الميلاد).
 - OTHER: أي كيان علمي أو معرفي مهم لا ينطبق عليه ما سبق بدقة.
 
 حقل الوصف العربي الدقيق (label_ar):
-لكل كيان، اكتب في "label_ar" وصفاً تخصصياً موجزاً ودقيقاً يوضح طبيعة الكيان (مثال: "شجرة حرجية"، "ظاهرة نباتية"، "تصنيف بيولوجي"، "عصر جيولوجي"، "مؤلَّف تراثي"، "مركب كيميائي").
+لكل كيان، اكتب في "label_ar" وصفاً تخصصياً موجزاً ودقيقاً يوضح طبيعة الكيان (مثال: "مركب كيميائي"، "غاز دفيء"، "وقود أحفوري"، "ظاهرة بيئية"، "تجمع دولي"، "حقبة تاريخية").
 
 شروط الإخراج:
 أعد فقط مصفوفة JSON صالحة داخل كائن "entities"، مثل:
-{"entities": [{"text": "البلوط", "category": "SPECIES", "label_ar": "شجرة حرجية", "confidence": 0.99}, {"text": "مارسيسنتية", "category": "PHENOMENON", "label_ar": "ظاهرة نباتية", "confidence": 0.98}, {"text": "ثنائيات الفلقة", "category": "CONCEPT", "label_ar": "تصنيف بيولوجي", "confidence": 0.97}]}
+{"entities": [{"text": "ثنائي أكسيد الكربون", "category": "CHEMICAL", "label_ar": "مركب كيميائي / غاز", "confidence": 0.99}, {"text": "الاحتباس الحراري", "category": "PHENOMENON", "label_ar": "ظاهرة بيئية / مناخية", "confidence": 0.98}, {"text": "الأمم المتحدة", "category": "ORGANIZATION", "label_ar": "منظمة دولية", "confidence": 0.99}]}
 """
 
 
@@ -76,7 +83,7 @@ class GroqLLMNER:
 
     def __init__(self):
         self.api_key = settings.GROQ_API_KEY
-        self.model = settings.GROQ_MODEL or "qwen/qwen3.8-27b"
+        self.model = settings.GROQ_MODEL or "llama-3.3-70b-versatile"
         self.base_url = "https://api.groq.com/openai/v1/chat/completions"
 
     async def extract_entities(self, text: str) -> List[Dict[str, Any]]:
@@ -93,9 +100,10 @@ class GroqLLMNER:
             "Content-Type": "application/json",
         }
 
-        # Model priority: Qwen (highest accuracy and no looping) -> allam -> gpt-oss-120b -> 20b
+        # Model priority: User specified / llama-3.3-70b -> qwen -> allam -> fallback models
         candidate_models = [
             self.model,
+            "llama-3.3-70b-versatile",
             "qwen/qwen3.8-27b",
             "allam-2-7b",
             "openai/gpt-oss-120b",
@@ -105,7 +113,7 @@ class GroqLLMNER:
 
         for model_candidate in candidate_models:
             # Qwen has an enforced OTPM limit of 1000 on Groq free/on-demand tier, so cap at 800
-            tok_limit = 800 if "qwen" in model_candidate else 1200
+            tok_limit = 800 if "qwen" in model_candidate else 1400
             payload = {
                 "model": model_candidate,
                 "messages": [
@@ -215,13 +223,14 @@ class GroqLLMNER:
         # Stage 3: Regex salvage fallback - extract all valid {"text": ..., "category": ...} items
         salvaged = []
         entity_regex = re.compile(
-            r'\{\s*"text"\s*:\s*"([^"]+)"\s*,\s*"category"\s*:\s*"([^"]+)"(?:\s*,\s*"confidence"\s*:\s*([0-9.]+))?\s*\}'
+            r'\{\s*"text"\s*:\s*"([^"]+)"\s*,\s*"category"\s*:\s*"([^"]+)"(?:\s*,\s*"confidence"\s*:\s*([0-9.]+))?(?:\s*,\s*"label_ar"\s*:\s*"([^"]+)")?\s*\}'
         )
         for match in entity_regex.finditer(raw_content):
             salvaged.append({
                 "text": match.group(1).strip(),
                 "category": match.group(2).strip(),
-                "confidence": float(match.group(3)) if match.group(3) else 0.95
+                "confidence": float(match.group(3)) if match.group(3) else 0.95,
+                "label_ar": match.group(4) if match.group(4) else None,
             })
 
         return salvaged
@@ -263,9 +272,9 @@ class GroqLLMNER:
         # Semantic mappings
         if any(k in cat_raw for k in ["نبات", "كائن", "شجر", "حيوان", "فصيل", "طائر", "بكتير"]) or any(k in cat_upper for k in ["SPEC", "PLANT", "ANIMAL", "BOTAN"]):
             return "SPECIES"
-        if any(k in cat_raw for k in ["ظاهر", "عملية حيوي"]) or "PHENOMEN" in cat_upper:
+        if any(k in cat_raw for k in ["ظاهر", "عملية حيوي", "مناخ", "احتباس", "أمواج", "رياح", "مد وجزر", "فيزياء", "طاق"]) or any(k in cat_upper for k in ["PHENOMEN", "CLIMATE", "WAVE"]):
             return "PHENOMENON"
-        if any(k in cat_raw for k in ["كيميا", "مركب", "عنصر", "فلز", "سبيك", "معدن"]) or any(k in cat_upper for k in ["CHEM", "ALLOY", "METAL", "ELEMENT"]):
+        if any(k in cat_raw for k in ["كيميا", "مركب", "عنصر", "فلز", "سبيك", "معدن", "غاز", "وقود", "بترول", "نفط", "فحم", "أكسيد"]) or any(k in cat_upper for k in ["CHEM", "ALLOY", "METAL", "ELEMENT", "GAS", "FUEL", "MINERAL"]):
             return "CHEMICAL"
         if any(k in cat_raw for k in ["عصر", "حقبة", "حضار", "قرن", "إمبراطور"]) or any(k in cat_upper for k in ["PERIOD", "ERA", "EPOCH", "CIVILIZATION"]):
             return "PERIOD"
@@ -273,11 +282,11 @@ class GroqLLMNER:
             return "WORK"
         if any(k in cat_raw for k in ["حدث", "معرك", "ثور", "مؤتمر", "حرب"]) or any(k in cat_upper for k in ["EVENT", "BATTLE", "WAR"]):
             return "EVENT"
-        if any(k in cat_raw for k in ["عضو", "نسيج", "خلايا", "خلية", "شريان", "قلب", "كبد", "كلية"]) or "ANATOM" in cat_upper:
+        if any(k in cat_raw for k in ["عضو", "نسيج", "خلايا", "خلية", "شريان", "قلب", "كبد", "كلية", "عظام"]) or "ANATOM" in cat_upper:
             return "ANATOMY"
         if any(k in cat_raw for k in ["قانون", "نظري", "قاعد", "فقه", "دستور"]) or any(k in cat_upper for k in ["LAW", "RULE", "THEORY"]):
             return "LAW_RULE"
-        if any(k in cat_raw for k in ["فلك", "كوكب", "نجم", "مجر", "سديم"]) or any(k in cat_upper for k in ["ASTRON", "PLANET", "STAR", "GALAXY"]):
+        if any(k in cat_raw for k in ["فلك", "كوكب", "نجم", "مجر", "سديم", "شمس", "قمر"]) or any(k in cat_upper for k in ["ASTRON", "PLANET", "STAR", "GALAXY"]):
             return "ASTRONOMY"
         if any(k in cat_raw for k in ["أداة", "آلة", "أثر", "أسطرلاب"]) or any(k in cat_upper for k in ["ARTIFACT", "TOOL"]):
             return "ARTIFACT"
@@ -285,9 +294,9 @@ class GroqLLMNER:
             return "UNIVERSITY"
         if any(k in cat_raw for k in ["شخص", "عالم", "باحث", "مؤسس", "شاعر", "ملك", "رئيس", "طبيب", "أستاذ"]) or "PER" in cat_upper:
             return "PERSON"
-        if any(k in cat_raw for k in ["موقع", "مكان", "مدين", "دول", "جغراف", "بلد", "جزير"]) or any(k in cat_upper for k in ["LOC", "CITY", "PLACE", "ISLAND"]):
+        if any(k in cat_raw for k in ["موقع", "مكان", "مدين", "دول", "جغراف", "بلد", "جزير", "إقليم", "عالم"]) or any(k in cat_upper for k in ["LOC", "CITY", "PLACE", "ISLAND", "GEO", "COUNTRY", "WORLD"]):
             return "LOCATION"
-        if any(k in cat_raw for k in ["مؤسس", "منظم", "شرك", "وزار", "مستشف", "مركز", "نادي", "جمع"]) or "ORG" in cat_upper:
+        if any(k in cat_raw for k in ["مؤسس", "منظم", "شرك", "وزار", "مستشف", "مركز", "نادي", "جمع", "اتحاد", "أمم"]) or "ORG" in cat_upper:
             return "ORGANIZATION"
         if any(k in cat_raw for k in ["مرض", "متلازم", "اعتلال", "وباء", "عرض", "مشكل"]) or any(k in cat_upper for k in ["DISEASE", "CONDITION", "SYMPTOM", "DISORDER"]):
             return "DISEASE"

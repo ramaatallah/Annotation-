@@ -5,8 +5,10 @@ Combines entities extracted from BERT and Groq LLM:
 2. Merges duplicate entities with confidence score reinforcement.
 3. Attaches high-precision trilateral roots to all words within each entity.
 4. Validates boundary offsets against original text.
+5. Snaps clipped or partial words to natural Arabic word boundaries.
 """
 
+import re
 import logging
 from typing import List, Dict, Any
 from app.services.nlp.root_engine import root_engine
@@ -228,6 +230,29 @@ class EntityFusionEngine:
 
         return stitched
 
+    @staticmethod
+    def _snap_to_word_boundaries(text: str, start: int, end: int) -> tuple:
+        """Expands start and end outward to natural Arabic word boundaries.
+        Guarantees that no entity span starts or ends in the middle of an Arabic word.
+        Fixes token truncation issues universally (e.g. 'الطّاق' -> 'الطاقة', 'غاز الطبي' -> 'الغاز الطبيعي').
+        """
+        if not text or start < 0 or end > len(text) or start >= end:
+            return start, end, text[start:end] if text else ""
+
+        # Characters considered part of an Arabic or alphanumeric word
+        word_char_pattern = re.compile(r"[\u0600-\u06FFa-zA-Z0-9]")
+
+        # Expand start backward if it cuts inside a word
+        while start > 0 and word_char_pattern.match(text[start - 1]):
+            start -= 1
+
+        # Expand end forward if it cuts inside a word (e.g. missing ة, ي, ين, ات)
+        while end < len(text) and word_char_pattern.match(text[end]):
+            end += 1
+
+        val = text[start:end].strip(" ،,.:؟!؛\t\n\"'()[]{}«»")
+        return start, end, val
+
     def _sanitize_entity(self, original_text: str, ent: Dict[str, Any]) -> Dict[str, Any]:
         """Ensures text bounds and indices are valid and match original text."""
         text_val = ent.get("text", "").strip(" ،,.:؟!؛\t\n")
@@ -244,7 +269,6 @@ class EntityFusionEngine:
 
         # Boundary checks
         if start < 0 or start >= len(original_text):
-            # Recalculate using find
             found_idx = original_text.find(text_val)
             if found_idx != -1:
                 start = found_idx
@@ -255,13 +279,17 @@ class EntityFusionEngine:
         # Verify substring matches
         actual_sub = original_text[start:end]
         if actual_sub != text_val:
-            # Minor index shift adjustment
             found_idx = original_text.find(text_val)
             if found_idx != -1:
                 start = found_idx
                 end = start + len(text_val)
             else:
                 text_val = actual_sub.strip()
+
+        # Universal Word Boundary Snapping: Snap any clipped sub-word to its full natural bounds in original_text
+        start, end, text_val = self._snap_to_word_boundaries(original_text, start, end)
+        if not text_val or len(text_val) < 2:
+            return None
 
         # Universal Arabic Particle & Preposition Normalization:
         # Entities are substantive noun phrases; they must never start or end with grammatical particles
@@ -276,12 +304,17 @@ class EntityFusionEngine:
         if not raw_words:
             return None
 
-        # Strip trailing prepositions/particles (e.g. 'لنحاس عن' -> 'لنحاس')
+        # Strip trailing prepositions/particles (e.g. 'النحاس عن' -> 'النحاس')
         while raw_words and raw_words[-1] in ARABIC_PARTICLES:
             raw_words.pop()
 
         # Strip leading prepositions/particles (e.g. 'في روما' -> 'روما')
         while raw_words and raw_words[0] in ARABIC_PARTICLES:
+            raw_words.pop(0)
+
+        # Strip common leading verbs if accidentally glued (e.g. 'عَرَف الإنسان' -> 'الإنسان')
+        COMMON_VERB_PREFIXES = {"عرف", "عَرَف", "وجد", "وُجد", "قام", "يبدأ", "تبدأ", "أدى", "أدت", "تؤدي", "يؤدي", "كان", "كانت"}
+        if len(raw_words) > 1 and raw_words[0] in COMMON_VERB_PREFIXES:
             raw_words.pop(0)
 
         if not raw_words:
@@ -317,6 +350,42 @@ class EntityFusionEngine:
             end = start + len(text_val)
 
         category = ent.get("category", "CONCEPT").upper()
+
+        # Specific-First Hierarchy Recovery:
+        # Upgrade CONCEPT to more specific scientific categories when clear semantic markers are present
+        if category == "CONCEPT":
+            CHEM_MARKERS = {
+                "أكسيد", "كربون", "هيدروجين", "نيتروجين", "أكسجين", "كبريت", "كالسيوم", "صوديوم",
+                "بوتاسيوم", "مغنيسيوم", "حديد", "نحاس", "قصدير", "برونز", "ذهب", "فضة", "زئبق",
+                "بترول", "نفط", "فحم", "غاز طبيعي", "حمض", "كلوريد", "فلز", "سبيكة"
+            }
+            PHENOM_MARKERS = {
+                "احتباس حراري", "مد وجزر", "رياح", "عاصفة", "زلزال", "بركان", "كسوف", "خسوف",
+                "حركة أمواج", "أمواج", "تمثيل ضوئي", "تبخر", "تكاثف", "إشعاع", "جاذبية"
+            }
+            GEO_MARKERS = {
+                "دول العالم", "العالم", "الشرق الأوسط", "شمال أفريقيا", "الوطن العربي"
+            }
+            ASTRON_MARKERS = {
+                "الشمس", "القمر", "كوكب", "مجرة", "سديم"
+            }
+
+            if any(term in text_val for term in CHEM_MARKERS):
+                category = "CHEMICAL"
+                if not ent.get("label_ar"):
+                    ent["label_ar"] = "مركب كيميائي / مادة"
+            elif any(term in text_val for term in PHENOM_MARKERS):
+                category = "PHENOMENON"
+                if not ent.get("label_ar"):
+                    ent["label_ar"] = "ظاهرة علمية / بيئية"
+            elif any(term in text_val for term in GEO_MARKERS):
+                category = "LOCATION"
+                if not ent.get("label_ar"):
+                    ent["label_ar"] = "نطاق جغرافي / تجمع دول"
+            elif any(term in text_val for term in ASTRON_MARKERS):
+                category = "ASTRONOMY"
+                if not ent.get("label_ar"):
+                    ent["label_ar"] = "جرم فلكي"
 
         # Universal Morphological Rule: Non-person semantic anchors can never be categorized as PERSON
         PERIOD_MARKERS = {"عصر", "حقبة", "تاريخ", "فترة", "قرن", "حضارة", "سنة", "ألفية", "إمبراطورية"}
@@ -354,8 +423,6 @@ class EntityFusionEngine:
 
     def _clean_and_expand_candidate(self, text: str, ent: Dict[str, Any]) -> Dict[str, Any]:
         """Cleans proclitics and expands compound named entities to avoid fragmented spans."""
-        import re
-
         start = ent["start_char"]
         end = ent["end_char"]
         val = ent["text"]

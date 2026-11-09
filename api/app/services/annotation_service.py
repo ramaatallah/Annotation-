@@ -120,16 +120,47 @@ class AnnotationService:
         skip: int = 0,
         limit: int = 100,
     ) -> List[Annotation]:
-        """Lists annotations, optionally filtered by page URL for browser extension restore."""
+        """Lists annotations, with automatic two-way reconciliation against Supabase cloud."""
         query = db.query(Annotation)
         if url:
             target_norm = canonicalize_url(url)
+
+            # Two-way synchronization check against Supabase
+            if supabase_sync.enabled:
+                try:
+                    cloud_records = supabase_sync.get_annotations_for_url(target_norm)
+                    if cloud_records is not None:
+                        # 1. Reconcile deletions from Supabase:
+                        # If a record exists locally for this URL but was deleted in Supabase, remove it locally
+                        import datetime
+                        now = datetime.datetime.utcnow()
+                        cloud_texts = {cr.get("selected_text") for cr in cloud_records if cr.get("selected_text")}
+                        local_for_url = [a for a in query.all() if canonicalize_url(a.url) == target_norm]
+                        for loc in local_for_url:
+                            # Grace period: DO NOT delete newly created annotations (< 25s) while cloud sync is completing
+                            age_sec = (now - loc.created_at).total_seconds() if loc.created_at else 999
+                            if age_sec > 25 and loc.selected_text not in cloud_texts:
+                                db.delete(loc)
+                            else:
+                                # Reconcile notes/color edits made directly in Supabase
+                                for cr in cloud_records:
+                                    if cr.get("selected_text") == loc.selected_text:
+                                        if cr.get("note") != loc.note:
+                                            loc.note = cr.get("note")
+                                        if cr.get("color") and cr.get("color") != loc.color:
+                                            loc.color = cr.get("color")
+                                        break
+                        db.commit()
+                except Exception as se:
+                    logger.debug(f"Two-way sync reconciliation skipped: {se}")
+
             all_records = query.order_by(Annotation.created_at.desc()).all()
             matched = [
                 ann for ann in all_records
                 if canonicalize_url(ann.url) == target_norm
             ]
             return matched[skip:skip + limit]
+
         return query.order_by(Annotation.created_at.desc()).offset(skip).limit(limit).all()
 
     async def update_annotation(
@@ -138,25 +169,28 @@ class AnnotationService:
         annotation_id: int,
         payload: AnnotationUpdate,
     ) -> Optional[Annotation]:
-        """Updates note, color, or text of an annotation."""
+        """Updates note, color, or text of an annotation with real-time Supabase cloud sync."""
         annotation = self.get_by_id(db, annotation_id)
         if not annotation:
             return None
 
+        updated_fields = {}
         text_changed = False
         if payload.note is not None:
             annotation.note = payload.note
+            updated_fields["note"] = payload.note
         if payload.color is not None:
             annotation.color = payload.color
+            updated_fields["color"] = payload.color
         if payload.selected_text is not None and payload.selected_text != annotation.selected_text:
             annotation.selected_text = payload.selected_text
+            updated_fields["selected_text"] = payload.selected_text
             text_changed = True
 
         db.commit()
 
         # If text changed, re-run NLP pipeline to update entities and roots
         if text_changed:
-            # Remove old entities
             db.query(DetectedEntity).filter(DetectedEntity.annotation_id == annotation.id).delete()
             db.commit()
 
@@ -190,20 +224,41 @@ class AnnotationService:
                     db.add(db_root)
             db.commit()
 
+        # Real-time Cloud Sync to Supabase for Updates
+        try:
+            if updated_fields:
+                supabase_sync.update_annotation(
+                    url=annotation.url,
+                    selected_text=annotation.selected_text,
+                    updated_fields=updated_fields,
+                )
+        except Exception as se:
+            logger.debug(f"Cloud update sync warning: {se}")
+
         db.refresh(annotation)
         return annotation
 
     def delete_annotation(self, db: Session, annotation_id: int) -> bool:
-        """Deletes an annotation and cascades to its entities and roots."""
+        """Deletes an annotation locally and cascades deletion to Supabase cloud."""
         annotation = self.get_by_id(db, annotation_id)
         if not annotation:
             return False
+
+        url = annotation.url
+        selected_text = annotation.selected_text
+
         db.delete(annotation)
         db.commit()
+
         try:
-            supabase_sync.delete_annotation(annotation_id)
-        except Exception:
-            pass
+            supabase_sync.delete_annotation(
+                url=url,
+                selected_text=selected_text,
+                annotation_id=annotation_id,
+            )
+        except Exception as se:
+            logger.debug(f"Cloud delete sync warning: {se}")
+
         return True
 
     def search(

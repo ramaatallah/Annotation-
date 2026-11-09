@@ -21,22 +21,158 @@
   let currentSelectedRange = null;
 
   /* ═══════════════════════════════════════════════
-     1. INITIALIZATION
+     0. CANONICAL URL & STRING NORMALIZATION
+     ═══════════════════════════════════════════════ */
+  function canonicalizeUrl(rawUrl) {
+    if (!rawUrl) return "";
+    try {
+      let u = decodeURI(rawUrl).trim();
+      if (u.includes("#")) {
+        u = u.split("#")[0];
+      }
+      return u.replace(/\/+$/, "");
+    } catch (e) {
+      return (rawUrl || "").trim().split("#")[0].replace(/\/+$/, "");
+    }
+  }
+
+  function normalizeArabicChar(ch) {
+    const code = ch.charCodeAt(0);
+
+    // 1. Skip Arabic Harakat (diacritics), Tatweel, and invisible control characters
+    // Harakat: \u064B (fathatan) to \u0652 (sukun), \u0670 (dagger alif), \u0671 (wasla), \u0640 (tatweel)
+    if (
+      (code >= 0x064b && code <= 0x0652) ||
+      code === 0x0670 ||
+      code === 0x0671 ||
+      code === 0x0640 ||
+      (code >= 0x200b && code <= 0x200f) ||
+      code === 0xfeff ||
+      code === 0x00ad
+    ) {
+      return null; // Strip completely
+    }
+
+    // 2. Unify Alef forms
+    if (ch === "أ" || ch === "إ" || ch === "آ" || ch === "ٱ") return "ا";
+
+    // 3. Unify Taa Marbuta
+    if (ch === "ة") return "ه";
+
+    // 4. Unify Yaa / Alef Maksura
+    if (ch === "ى") return "ي";
+
+    // 5. Quotes, brackets, citations -> convert to space for uniform word boundaries
+    if (
+      ch === "«" ||
+      ch === "»" ||
+      ch === "“" ||
+      ch === "”" ||
+      ch === '"' ||
+      ch === "'" ||
+      ch === "(" ||
+      ch === ")" ||
+      ch === "[" ||
+      ch === "]" ||
+      ch === "{" ||
+      ch === "}"
+    ) {
+      return " ";
+    }
+
+    // 6. Punctuation (Arabic & Latin) -> convert to space
+    if (
+      ch === "\u060C" || // Arabic comma ،
+      ch === "\u061B" || // Arabic semicolon ؛
+      ch === "\u061F" || // Arabic question mark ؟
+      ch === "." ||
+      ch === "," ||
+      ch === ";" ||
+      ch === ":" ||
+      ch === "!" ||
+      ch === "?" ||
+      ch === "-" ||
+      ch === "—" ||
+      ch === "–" ||
+      ch === "/" ||
+      ch === "\\"
+    ) {
+      return " ";
+    }
+
+    // 7. Whitespace (including non-breaking spaces \u00A0) -> convert to space
+    if (/\s/.test(ch) || code === 0x00a0) {
+      return " ";
+    }
+
+    return ch.toLowerCase();
+  }
+
+  function normalizeStringForMatching(str) {
+    if (!str) return "";
+    let out = "";
+    let inSpace = false;
+    for (let i = 0; i < str.length; i++) {
+      const n = normalizeArabicChar(str[i]);
+      if (n === null) continue;
+      if (n === " ") {
+        if (!inSpace) {
+          out += " ";
+          inSpace = true;
+        }
+      } else {
+        out += n;
+        inSpace = false;
+      }
+    }
+    return out.trim();
+  }
+
+  /* ═══════════════════════════════════════════════
+     1. INITIALIZATION & LIFECYCLE
      ═══════════════════════════════════════════════ */
   async function init() {
     chrome.storage.local.get({ wahaj_enabled: true }, (res) => {
       isHighlightingEnabled = res.wahaj_enabled;
     });
 
+    // Run immediate restoration from local cache & backend
     await restoreHighlights();
 
-    // Safety retry in case DOM was still finishing asynchronous rendering
-    setTimeout(() => {
-      restoreHighlights();
-    }, 700);
+    // Staggered retries to guarantee restoration after async page hydration / DOM rendering
+    [300, 800, 1800, 3500].forEach((delay) => {
+      setTimeout(() => restoreHighlights(), delay);
+    });
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", () => restoreHighlights());
+    }
+    window.addEventListener("pageshow", () => restoreHighlights());
+
+    // Observe dynamic SPA content changes
+    setupMutationWatcher();
 
     setupSelectionListener();
     setupMessageListener();
+  }
+
+  let mutationDebounceTimer = null;
+  function setupMutationWatcher() {
+    try {
+      const observer = new MutationObserver(() => {
+        clearTimeout(mutationDebounceTimer);
+        mutationDebounceTimer = setTimeout(() => {
+          if (currentAnnotations.length > 0) {
+            applyAnnotationsToDom(currentAnnotations);
+          }
+        }, 500);
+      });
+
+      const target = document.body || document.documentElement;
+      if (target) {
+        observer.observe(target, { childList: true, subtree: true });
+      }
+    } catch (e) {}
   }
 
   /* ═══════════════════════════════════════════════
@@ -186,6 +322,9 @@
 
       currentAnnotations.push(response);
 
+      // Cache locally in chrome.storage for instant offline recovery
+      updateLocalCache(currentAnnotations);
+
       // IMMEDIATELY OPEN IN-PAGE CARD OVER THE HIGHLIGHT!
       if (markElement) {
         showTooltipCard(markElement, response);
@@ -272,9 +411,16 @@
       NodeFilter.SHOW_TEXT,
       {
         acceptNode: (node) => {
+          const parent = node.parentElement;
+          if (!parent) return NodeFilter.FILTER_REJECT;
+          const tag = parent.tagName.toUpperCase();
           if (
-            node.parentElement &&
-            node.parentElement.closest(".wahaj-selection-popup, .wahaj-tooltip-card, .wahaj-toast")
+            tag === "SCRIPT" ||
+            tag === "STYLE" ||
+            tag === "NOSCRIPT" ||
+            tag === "TEMPLATE" ||
+            tag === "SVG" ||
+            parent.closest(".wahaj-selection-popup, .wahaj-tooltip-card, .wahaj-toast")
           ) {
             return NodeFilter.FILTER_REJECT;
           }
@@ -293,62 +439,36 @@
   }
 
   /* ═══════════════════════════════════════════════
-     6. ROBUST CROSS-NODE TEXT SEARCH & RESTORATION
+     6. HIGH-PRECISION CROSS-NODE TEXT LOCATOR
      ═══════════════════════════════════════════════ */
-  function findAndHighlightCrossNodeText(searchText, annotationData) {
-    if (!searchText) return null;
-    const cleanSearch = searchText.replace(/\s+/g, " ").trim();
-    if (!cleanSearch) return null;
+  function createRangeForTargetText(container, targetText) {
+    if (!container || !targetText) return null;
 
-    // 1. Primary Priority: Search in leaf text-bearing blocks (p, li, td, headings)
-    const leafBlocks = document.querySelectorAll("p, li, blockquote, dt, dd, td, th, h1, h2, h3, h4, h5, h6");
-    for (const block of leafBlocks) {
-      if (block.closest(".wahaj-selection-popup, .wahaj-tooltip-card, .wahaj-toast")) continue;
-      const blockText = block.textContent.replace(/\s+/g, " ");
-      if (blockText.includes(cleanSearch)) {
-        const range = createRangeForSubstring(block, searchText);
-        if (range) {
-          return highlightRange(range, annotationData);
-        }
-      }
-    }
+    const cleanTargetNorm = normalizeStringForMatching(targetText);
+    if (!cleanTargetNorm || cleanTargetNorm.length < 2) return null;
 
-    // 2. Secondary Priority: Multi-paragraph or cross-element selections
-    // Find the leaf block that contains the start snippet of the highlighted text (first 35 chars)
-    const startSnippet = cleanSearch.slice(0, Math.min(35, cleanSearch.length));
-    for (const block of leafBlocks) {
-      if (block.closest(".wahaj-selection-popup, .wahaj-tooltip-card, .wahaj-toast")) continue;
-      const bText = block.textContent.replace(/\s+/g, " ");
-      if (bText.includes(startSnippet)) {
-        // Find closest parent article or content container
-        const cont = block.closest("article, main, [role='main'], .mw-parser-output, .entry-content, .article-body, #bodyContent") || block.parentElement.parentElement || document.body;
-        const range = createRangeForSubstring(cont, searchText);
-        if (range) {
-          return highlightRange(range, annotationData);
-        }
-      }
-    }
-
-    // 3. Final fallback: try document.body
-    const bodyRange = createRangeForSubstring(document.body, searchText);
-    if (bodyRange) {
-      return highlightRange(bodyRange, annotationData);
-    }
-
-    return null;
-  }
-
-  function createRangeForSubstring(container, text) {
-    if (!container || !text) return null;
-
+    // Collect content text nodes, skipping styles, scripts and Wahaj UI
+    const textNodes = [];
     const walker = document.createTreeWalker(
       container,
       NodeFilter.SHOW_TEXT,
       {
         acceptNode: (node) => {
+          const parent = node.parentElement;
+          if (!parent) return NodeFilter.FILTER_REJECT;
+          const tag = parent.tagName.toUpperCase();
           if (
-            node.parentElement &&
-            node.parentElement.closest(".wahaj-selection-popup, .wahaj-tooltip-card, .wahaj-toast, .wahaj-highlight")
+            tag === "SCRIPT" ||
+            tag === "STYLE" ||
+            tag === "NOSCRIPT" ||
+            tag === "TEMPLATE" ||
+            tag === "SVG" ||
+            tag === "CANVAS" ||
+            tag === "BUTTON" ||
+            tag === "INPUT" ||
+            tag === "TEXTAREA" ||
+            tag === "SELECT" ||
+            parent.closest(".wahaj-selection-popup, .wahaj-tooltip-card, .wahaj-toast")
           ) {
             return NodeFilter.FILTER_REJECT;
           }
@@ -357,78 +477,182 @@
       }
     );
 
-    const textNodes = [];
     while (walker.nextNode()) {
       textNodes.push(walker.currentNode);
     }
     if (textNodes.length === 0) return null;
 
-    // Build contiguous text and maintain exact 1-to-1 character index mapping
+    // Build contiguous character map with virtual spaces across block boundaries
     const charMap = [];
-    let combined = "";
+    let lastBlockEl = null;
 
     for (const node of textNodes) {
-      const str = node.textContent;
-      for (let i = 0; i < str.length; i++) {
-        charMap.push({ node, offset: i });
-        combined += str[i];
+      const parentBlock = node.parentElement
+        ? node.parentElement.closest("p, li, div, h1, h2, h3, h4, h5, h6, blockquote, td, th, tr, dt, dd, section, article")
+        : null;
+
+      if (lastBlockEl && parentBlock && lastBlockEl !== parentBlock) {
+        charMap.push({ node, offset: 0, char: " ", isVirtual: true });
+      }
+      lastBlockEl = parentBlock;
+
+      const content = node.textContent;
+      for (let i = 0; i < content.length; i++) {
+        charMap.push({ node, offset: i, char: content[i], isVirtual: false });
       }
     }
 
-    const cleanTarget = text.trim();
-    if (!cleanTarget) return null;
+    if (charMap.length === 0) return null;
 
-    // 1. Direct character match
-    let matchIdx = combined.indexOf(cleanTarget);
-    let matchLen = cleanTarget.length;
+    // Build normalized stream with direct 1-to-1 index mapping to charMap
+    const normStream = [];
+    let inSpace = false;
 
-    // 2. Normalized whitespace match (tracking back to exact charMap index)
+    for (let idx = 0; idx < charMap.length; idx++) {
+      const entry = charMap[idx];
+      const n = normalizeArabicChar(entry.char);
+      if (n === null) continue; // Diacritics, tatweel, zero-width chars skipped
+      if (n === " ") {
+        if (!inSpace) {
+          normStream.push({ normChar: " ", charMapIndex: idx });
+          inSpace = true;
+        }
+      } else {
+        normStream.push({ normChar: n, charMapIndex: idx });
+        inSpace = false;
+      }
+    }
+
+    if (normStream.length === 0) return null;
+
+    const streamString = normStream.map((s) => s.normChar).join("");
+
+    // 1. Exact Normalized Substring Search
+    let matchIdx = streamString.indexOf(cleanTargetNorm);
+
+    // 2. Anchor Word Matching (for citations [1] or Wikipedia templates interspersed in text)
     if (matchIdx === -1) {
-      const normTarget = cleanTarget.replace(/\s+/g, " ");
-      let normCombined = "";
-      const normToOrig = [];
-      let inWs = false;
-
-      for (let i = 0; i < combined.length; i++) {
-        const ch = combined[i];
-        if (/\s/.test(ch)) {
-          if (!inWs) {
-            normCombined += " ";
-            normToOrig.push(i);
-            inWs = true;
+      const words = cleanTargetNorm.split(" ").filter((w) => w.length > 1);
+      if (words.length >= 4) {
+        const startAnchor = words.slice(0, 3).join(" ");
+        const endAnchor = words.slice(-3).join(" ");
+        const posStart = streamString.indexOf(startAnchor);
+        if (posStart !== -1) {
+          const posEnd = streamString.indexOf(endAnchor, posStart);
+          if (posEnd !== -1) {
+            const matchSpan = (posEnd + endAnchor.length) - posStart;
+            const expectedSpan = cleanTargetNorm.length;
+            if (Math.abs(matchSpan - expectedSpan) / expectedSpan < 0.35) {
+              const startEntry = normStream[posStart];
+              const endEntry = normStream[posEnd + endAnchor.length - 1];
+              if (startEntry && endEntry) {
+                const startDom = charMap[startEntry.charMapIndex];
+                const endDom = charMap[endEntry.charMapIndex];
+                if (startDom && endDom) {
+                  try {
+                    const range = document.createRange();
+                    range.setStart(startDom.node, startDom.offset);
+                    range.setEnd(endDom.node, endDom.offset + 1);
+                    return range;
+                  } catch (e) {}
+                }
+              }
+            }
           }
-        } else {
-          normCombined += ch;
-          normToOrig.push(i);
-          inWs = false;
         }
       }
-
-      const normIdx = normCombined.indexOf(normTarget);
-      if (normIdx !== -1) {
-        matchIdx = normToOrig[normIdx];
-        const endNormIdx = normIdx + normTarget.length - 1;
-        const endOrigIdx = normToOrig[endNormIdx] || (matchIdx + normTarget.length - 1);
-        matchLen = (endOrigIdx - matchIdx) + 1;
-      }
     }
 
-    if (matchIdx === -1 || matchIdx >= charMap.length) return null;
+    if (matchIdx === -1) return null;
 
-    const startPt = charMap[matchIdx];
-    const endIdx = Math.min(charMap.length - 1, matchIdx + matchLen - 1);
-    const endPt = charMap[endIdx];
+    const endNormIdx = matchIdx + cleanTargetNorm.length - 1;
+    if (endNormIdx >= normStream.length) return null;
 
-    if (!startPt || !endPt) return null;
+    const startEntry = normStream[matchIdx];
+    const endEntry = normStream[endNormIdx];
+    if (!startEntry || !endEntry) return null;
+
+    const startDom = charMap[startEntry.charMapIndex];
+    const endDom = charMap[endEntry.charMapIndex];
+    if (!startDom || !endDom) return null;
 
     try {
       const range = document.createRange();
-      range.setStart(startPt.node, startPt.offset);
-      range.setEnd(endPt.node, endPt.offset + 1);
+      range.setStart(startDom.node, startDom.offset);
+      range.setEnd(endDom.node, endDom.offset + 1);
       return range;
-    } catch {
+    } catch (e) {
       return null;
     }
+  }
+
+  function findAndHighlightCrossNodeText(searchText, annotationData) {
+    if (!searchText) return null;
+
+    const existing = document.querySelector(`mark.wahaj-highlight[data-annotation-id="${annotationData.id}"]`);
+    if (existing) return existing;
+
+    const cleanTargetNorm = normalizeStringForMatching(searchText);
+    if (!cleanTargetNorm) return null;
+
+    const leafBlocks = document.querySelectorAll("p, li, blockquote, dt, dd, td, th, h1, h2, h3, h4, h5, h6");
+
+    // Pass 1: Check Leaf Blocks (Fast Path)
+    for (const block of leafBlocks) {
+      if (block.closest(".wahaj-selection-popup, .wahaj-tooltip-card, .wahaj-toast")) continue;
+      const bNorm = normalizeStringForMatching(block.textContent);
+      if (bNorm.includes(cleanTargetNorm)) {
+        const range = createRangeForTargetText(block, searchText);
+        if (range) {
+          return highlightRange(range, annotationData);
+        }
+      }
+    }
+
+    // Pass 2: Main Article / Body Content Container
+    const mainCont =
+      document.querySelector("article, main, [role='main'], .mw-parser-output, .entry-content, .article-body, #bodyContent, #content") ||
+      document.body;
+
+    const contRange = createRangeForTargetText(mainCont, searchText);
+    if (contRange) {
+      return highlightRange(contRange, annotationData);
+    }
+
+    // Pass 3: Multi-Paragraph Split Matching (Selections spanning multiple paragraphs or list items)
+    const paragraphs = searchText
+      .split(/\n+/)
+      .map((p) => p.trim())
+      .filter((p) => p.length >= 10);
+
+    if (paragraphs.length > 1) {
+      let anyMark = null;
+      for (const para of paragraphs) {
+        const pNorm = normalizeStringForMatching(para);
+        let foundRange = null;
+
+        for (const block of leafBlocks) {
+          if (block.closest(".wahaj-selection-popup, .wahaj-tooltip-card, .wahaj-toast")) continue;
+          const bNorm = normalizeStringForMatching(block.textContent);
+          if (bNorm.includes(pNorm)) {
+            foundRange = createRangeForTargetText(block, para);
+            if (foundRange) break;
+          }
+        }
+
+        if (!foundRange) {
+          foundRange = createRangeForTargetText(mainCont, para);
+        }
+
+        if (foundRange) {
+          const m = highlightRange(foundRange, annotationData);
+          if (m && !anyMark) anyMark = m;
+        }
+      }
+      if (anyMark) return anyMark;
+    }
+
+    return null;
   }
 
   /* ═══════════════════════════════════════════════
@@ -574,7 +798,6 @@
       </div>
     `;
 
-    // Assembled in the exact order requested: Header -> Text -> Note -> Entities -> Roots -> Actions
     tooltip.innerHTML = headerSection + selectedTextSection + noteSection + entitiesSection + rootsSection + actionsSection;
 
     const rect = anchor.getBoundingClientRect();
@@ -622,6 +845,11 @@
         if (res && res.success) {
           annotationData.note = newNote;
           anchor.dataset.annotationData = JSON.stringify({ ...annotationData, note: newNote });
+
+          const idx = currentAnnotations.findIndex((a) => a.id === annotationData.id);
+          if (idx !== -1) currentAnnotations[idx].note = newNote;
+          updateLocalCache(currentAnnotations);
+
           showTooltipCard(anchor, annotationData);
           showToast("✅ تم تعديل الملاحظة بنجاح", "success");
         } else {
@@ -647,6 +875,8 @@
           });
 
           currentAnnotations = currentAnnotations.filter((a) => a.id !== annotationId);
+          updateLocalCache(currentAnnotations);
+
           showToast("🗑️ تم حذف التظليل بنجاح", "success");
         } else {
           showToast("❌ خطأ في الحذف", "error");
@@ -656,9 +886,61 @@
   }
 
   /* ═══════════════════════════════════════════════
-     10. RESTORE HIGHLIGHTS
+     10. OFFLINE-FIRST RESTORATION & CACHING
      ═══════════════════════════════════════════════ */
+  function updateLocalCache(annotations) {
+    const currentUrl = canonicalizeUrl(window.location.href);
+    const cacheKey = `wahaj_cache_${currentUrl}`;
+    const updateObj = {};
+    updateObj[cacheKey] = annotations;
+    chrome.storage.local.set(updateObj);
+  }
+
+  function applyAnnotationsToDom(annotations) {
+    const list = Array.isArray(annotations) ? annotations : [];
+    const validIds = new Set(list.map((a) => String(a.id)));
+
+    // 1. Remove obsolete highlights from DOM if deleted from backend/Supabase
+    const existingMarks = document.querySelectorAll("mark.wahaj-highlight");
+    existingMarks.forEach((m) => {
+      const markId = String(m.dataset.annotationId || "");
+      if (markId && !validIds.has(markId)) {
+        const textNode = document.createTextNode(m.textContent);
+        m.parentNode.replaceChild(textNode, m);
+      }
+    });
+
+    if (list.length === 0) return;
+
+    // 2. Add new highlights or update existing dataset
+    list.forEach((ann) => {
+      const marks = document.querySelectorAll(`mark.wahaj-highlight[data-annotation-id="${ann.id}"]`);
+      if (marks.length > 0) {
+        marks.forEach((m) => {
+          m.dataset.annotationData = JSON.stringify(ann);
+        });
+      } else {
+        findAndHighlightCrossNodeText(ann.selected_text, ann);
+      }
+    });
+  }
+
   async function restoreHighlights() {
+    const currentUrl = canonicalizeUrl(window.location.href);
+    const cacheKey = `wahaj_cache_${currentUrl}`;
+
+    // 1. Instant pass from local storage cache (0ms latency, works offline or while backend loads)
+    try {
+      chrome.storage.local.get([cacheKey], (res) => {
+        const cached = res ? res[cacheKey] : null;
+        if (Array.isArray(cached) && cached.length > 0) {
+          currentAnnotations = cached;
+          applyAnnotationsToDom(cached);
+        }
+      });
+    } catch (e) {}
+
+    // 2. Network pass from backend (syncs latest annotations)
     try {
       const response = await new Promise((resolve, reject) => {
         chrome.runtime.sendMessage(
@@ -675,18 +957,13 @@
         );
       });
 
-      if (Array.isArray(response) && response.length > 0) {
+      if (Array.isArray(response)) {
         currentAnnotations = response;
-        response.forEach((ann) => {
-          // If this annotation is already highlighted on page, skip to avoid double wrapping
-          const existing = document.querySelector(`mark.wahaj-highlight[data-annotation-id="${ann.id}"]`);
-          if (!existing) {
-            findAndHighlightCrossNodeText(ann.selected_text, ann);
-          }
-        });
+        updateLocalCache(response);
+        applyAnnotationsToDom(response);
       }
-    } catch {
-      // Server offline, nothing to restore
+    } catch (e) {
+      // Offline fallback: cached annotations already applied
     }
   }
 
@@ -748,11 +1025,6 @@
     document.body.appendChild(toast);
 
     setTimeout(() => toast.remove(), 3000);
-  }
-
-  function truncate(str, maxLen) {
-    if (!str) return "";
-    return str.length > maxLen ? str.substring(0, maxLen) + "..." : str;
   }
 
   function getCategoryLabel(category) {
