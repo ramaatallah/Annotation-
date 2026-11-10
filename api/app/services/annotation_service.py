@@ -56,6 +56,7 @@ class AnnotationService:
                         annotation_id=annotation.id,
                         text=ent["text"],
                         category=ent["category"],
+                        label_ar=ent.get("label_ar"),
                         confidence=ent["confidence"],
                         source=ent["source"],
                         start_char=ent["start_char"],

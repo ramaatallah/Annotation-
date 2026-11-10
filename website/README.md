@@ -1,107 +1,36 @@
-# موقع حاشية (Website)
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-الواجهة التعريفية لمشروع *وَهَج**، وفيها صفحة الهبوط وتسجيل الدخول والتسجيل.
-الموقع مشروع Vite + React مستقل داخل مجلد `website/`، ولا علاقة له بكود الإضافة في `src/` بجذر المشروع.
+## Getting Started
 
-## التقنيات
-
-- React + Vite
-- react-router-dom (التنقل بين الصفحات)
-- ESLint
-
-## التشغيل
+First, run the development server:
 
 ```bash
-git clone <رابط الريبو>
-cd Annotation
-git checkout feature/website
-cd website
-npm install
 npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
 ```
 
-افتح الرابط الذي يظهر في التيرمنال (غالباً `http://localhost:5173`).
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-أوامر أخرى:
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
-```bash
-npm run build     # بناء النسخة النهائية في dist/
-npm run preview   # تجربة النسخة المبنية محلياً
-npm run lint      # فحص الكود
-```
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-## هيكل المجلدات
+## Learn More
 
-```
-website/
-├── index.html          # lang="ar" dir="rtl" + الخط العربي
-├── public/             # الصور والأيقونات الثابتة
-└── src/
-    ├── main.jsx        # نقطة البداية
-    ├── App.jsx         # الـ Routes
-    ├── pages/          # Home, Login, Register
-    ├── components/     # Navbar, Hero, Steps, ToolsGrid, CtaBanner, Footer
-    └── services/       # دوال التواصل مع الـ API
-```
+To learn more about Next.js, take a look at the following resources:
 
-## أقسام الصفحة الرئيسية وتوزيع الشغل
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
-عدّلوا الأسماء حسب الاتفاق بينكم:
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-| الجزء | الملف | المسؤول |
-|-------|-------|---------|
-| Navbar + Footer | `components/Navbar.jsx`, `Footer.jsx` | |
-| Hero | `components/Hero.jsx` | |
-| من النص إلى المعرفة (3 خطوات) | `components/Steps.jsx` | |
-| أدوات صغيرة، أثر كبير | `components/ToolsGrid.jsx` | |
-| CTA + تجميع الصفحة الرئيسية | `components/CtaBanner.jsx`, `pages/Home.jsx` | |
-| تسجيل الدخول والتسجيل | `pages/Login.jsx`, `pages/Register.jsx` | |
+## Deploy on Vercel
 
-## قواعد التصميم
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
-- الموقع عربي بالكامل: `dir="rtl"` و`lang="ar"`.
-- الخط: IBM Plex Sans Arabic.
-- الألوان معرّفة كمتغيرات CSS في `src/index.css` (أزرق غامق للأساسي وأصفر للتظليل). استخدموا المتغيرات ولا تكتبوا الألوان مباشرة في المكوّنات.
-- أبقوا كل مكوّن في ملف مستقل حتى لا تتعارض التعديلات.
-
-## طريقة العمل على Git
-
-1. الفرع الأساسي للموقع هو `feature/website`. **لا تشتغلوا عليه مباشرة.**
-2. قبل أي شغل، حدّثوا نسختكم:
-   ```bash
-   git checkout feature/website
-   git pull origin feature/website
-   ```
-3. افتحوا فرعاً خاصاً بشغلكم:
-   ```bash
-   git checkout -b feature/website-navbar
-   ```
-4. اعملوا كوميتات صغيرة بوصف واضح:
-   ```bash
-   git add .
-   git commit -m "Add Navbar component"
-   ```
-5. ارفعوا الفرع:
-   ```bash
-   git push -u origin feature/website-navbar
-   ```
-6. افتحوا Pull Request على GitHub: `base: feature/website` و`compare: فرعكم`، واطلبوا مراجعة من زميل قبل الدمج.
-
-### تجنّب التعارضات
-
-- كل شخص يعدّل على ملفاته فقط حسب الجدول أعلاه.
-- ملفات `App.jsx` و`index.css` و`package.json` مشتركة، فأخبروا الفريق قبل تعديلها.
-- لا تثبّتوا حزماً جديدة دون إعلام الفريق، لأنها تعدّل `package-lock.json`.
-
-## متغيرات البيئة
-
-- لا ترفعوا ملف `.env` أبداً (مضاف في `.gitignore`).
-- أنشئوا ملف `.env.example` فيه أسماء المتغيرات بدون قيم، مثل:
-  ```
-  VITE_API_URL=
-  ```
-- أي متغير يبدأ بـ `VITE_` يظهر في كود المتصفح للجميع، فلا تضعوا فيه مفاتيح سرية.
-
-## ملاحظة
-
-مجلدا `src/` و`api/` في جذر المشروع خاصان بالإضافة والـ backend ولا يتم تعديلهما من شغل الموقع.
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

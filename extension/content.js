@@ -132,28 +132,37 @@
      1. INITIALIZATION & LIFECYCLE
      ═══════════════════════════════════════════════ */
   async function init() {
-    chrome.storage.local.get({ wahaj_enabled: true }, (res) => {
-      isHighlightingEnabled = res.wahaj_enabled;
+    // Always register listeners first — they must work regardless of highlight toggle
+    setupSelectionListener();
+    setupMessageListener();
+
+    // Wait for stored state before doing anything else
+    await new Promise((resolve) => {
+      chrome.storage.local.get({ wahaj_enabled: true }, (res) => {
+        isHighlightingEnabled = res.wahaj_enabled;
+        resolve();
+      });
     });
+
+    if (!isHighlightingEnabled) return; // Highlighting is off — skip restoration
 
     // Run immediate restoration from local cache & backend
     await restoreHighlights();
 
     // Staggered retries to guarantee restoration after async page hydration / DOM rendering
-    [300, 800, 1800, 3500].forEach((delay) => {
+    [300, 800, 1800, 3500, 6000, 10000].forEach((delay) => {
       setTimeout(() => restoreHighlights(), delay);
     });
 
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", () => restoreHighlights());
     }
+    // Also fire on full page load (images, scripts done)
+    window.addEventListener("load", () => restoreHighlights());
     window.addEventListener("pageshow", () => restoreHighlights());
 
     // Observe dynamic SPA content changes
     setupMutationWatcher();
-
-    setupSelectionListener();
-    setupMessageListener();
   }
 
   let mutationDebounceTimer = null;
@@ -230,14 +239,14 @@
 
     popup.innerHTML = `
       <div class="wahaj-popup-header">
-        <span class="wahaj-popup-title">🌟 وَهَج — تظليل نص عربي</span>
+        <span class="wahaj-popup-title">وَهَج — تظليل نص عربي</span>
         <button class="wahaj-popup-close" id="wahajPopupClose">✕</button>
       </div>
       <div class="wahaj-selected-preview">${text}</div>
-      <textarea class="wahaj-note-input" id="wahajNoteInput" placeholder="✏️ اكتب ملاحظتك على هذا النص (اختياري)..." rows="3"></textarea>
+      <textarea class="wahaj-note-input" id="wahajNoteInput" placeholder="اكتب ملاحظتك على هذا النص (اختياري)..." rows="3"></textarea>
       <div class="wahaj-popup-actions">
         <button class="wahaj-btn wahaj-btn-save" id="wahajSaveBtn">
-          💾 حفظ واستخراج الكيانات والجذور
+          حفظ واستخراج الكيانات والجذور
         </button>
         <button class="wahaj-btn wahaj-btn-cancel" id="wahajCancelBtn">
           إلغاء
@@ -335,18 +344,18 @@
       }
       currentSelectedRange = null;
 
-      showToast("✅ تم التحليل واستخراج الكيانات والجذور!", "success");
+      showToast("تم التحليل واستخراج الكيانات والجذور بنجاح!", "success");
     } catch (err) {
       console.error("Wahaj save error:", err);
       saveBtn.disabled = false;
-      saveBtn.innerHTML = "💾 حفظ واستخراج الكيانات والجذور";
+      saveBtn.innerHTML = "حفظ واستخراج الكيانات والجذور";
       const msg = err && err.message ? err.message : "";
       if (msg.includes("Extension context invalidated")) {
-        showToast("⚠️ يرجى تحديث صفحة الويب (اضغط F5) لإعادة ربط الإضافة بالمتصفح", "warning");
+        showToast("يرجى تحديث صفحة الويب (اضغط F5) لإعادة ربط الإضافة بالمتصفح", "warning");
       } else if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
-        showToast("❌ تعذر الاتصال بالخادم — شغّل run.py في مجلد backend", "error");
+        showToast("تعذر الاتصال بالخادم — تأكد من تشغيل السيرفر", "error");
       } else {
-        showToast(`❌ خطأ: ${msg || "تأكد أن الخادم يعمل"}`, "error");
+        showToast(`خطأ: ${msg || "تأكد أن الخادم يعمل"}`, "error");
       }
     }
   }
@@ -697,7 +706,7 @@
     // 0. Header with close button
     const headerSection = `
       <div class="wahaj-tooltip-header">
-        <span class="wahaj-tooltip-title">🌟 بطاقة التحليل الصرفي والدلالي</span>
+        <span class="wahaj-tooltip-title">بطاقة التحليل الصرفي والدلالي</span>
         <button class="wahaj-tooltip-close" id="wahajCardClose" title="إغلاق">✕</button>
       </div>
     `;
@@ -705,7 +714,7 @@
     // 1. SELECTED TEXT (FIRST!)
     const selectedTextSection = `
       <div class="wahaj-card-section">
-        <span class="wahaj-card-label">📖 النص المظلل:</span>
+        <span class="wahaj-card-label">النص المظلل:</span>
         <div class="wahaj-card-selected-text">${annotationData.selected_text}</div>
       </div>
     `;
@@ -715,7 +724,7 @@
     if (annotationData.note) {
       noteSection = `
         <div class="wahaj-card-section">
-          <span class="wahaj-card-label">📌 الملاحظة المكتوبة:</span>
+          <span class="wahaj-card-label">الملاحظة المكتوبة:</span>
           <div class="wahaj-card-note">${annotationData.note}</div>
         </div>
       `;
@@ -727,11 +736,10 @@
     if (entities.length > 0) {
       const badges = entities
         .map((ent) => {
-          const catLabel = getCategoryLabel(ent.category);
           const catNameAr = ent.label_ar || getCategoryArabicName(ent.category);
           return `
             <span class="wahaj-entity-badge" data-category="${ent.category}">
-              ${catLabel} <strong>${ent.text}</strong>
+              <strong>${ent.text}</strong>
               <span class="wahaj-entity-category-pill">${catNameAr}</span>
             </span>
           `;
@@ -743,7 +751,7 @@
 
       entitiesSection = `
         <div class="wahaj-card-section">
-          <span class="wahaj-card-label">🏷️ الكيانات والمفاهيم المكتشفة:</span>
+          <span class="wahaj-card-label">الكيانات والمفاهيم المكتشفة:</span>
           <div class="wahaj-entity-list">${badges}</div>
           <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
             <span style="font-size:11px;color:#aaa;">نسبة الثقة (Confidence):</span>
@@ -784,7 +792,7 @@
 
       rootsSection = `
         <div class="wahaj-card-section">
-          <span class="wahaj-card-label">🔤 الجذور اللغوية:</span>
+          <span class="wahaj-card-label">الجذور اللغوية:</span>
           <div class="wahaj-roots-grid">${rootItems}</div>
         </div>
       `;
@@ -793,8 +801,8 @@
     // 5. ACTION BUTTONS (Edit + Delete)
     const actionsSection = `
       <div class="wahaj-card-actions">
-        <button class="wahaj-card-btn wahaj-card-btn-edit" id="wahajCardEdit">✏️ تعديل الملاحظة</button>
-        <button class="wahaj-card-btn wahaj-card-btn-delete" id="wahajCardDelete">🗑️ حذف التظليل</button>
+        <button class="wahaj-card-btn wahaj-card-btn-edit" id="wahajCardEdit">تعديل الملاحظة</button>
+        <button class="wahaj-card-btn wahaj-card-btn-delete" id="wahajCardDelete">حذف التظليل</button>
       </div>
     `;
 
@@ -831,7 +839,7 @@
      ═══════════════════════════════════════════════ */
   function handleEditAnnotation(annotationData, anchor) {
     const currentNote = annotationData.note || "";
-    const newNote = prompt("✏️ تعديل الملاحظة:", currentNote);
+    const newNote = prompt("تعديل الملاحظة:", currentNote);
 
     if (newNote === null) return;
 
@@ -851,16 +859,16 @@
           updateLocalCache(currentAnnotations);
 
           showTooltipCard(anchor, annotationData);
-          showToast("✅ تم تعديل الملاحظة بنجاح", "success");
+          showToast("تم تعديل الملاحظة بنجاح", "success");
         } else {
-          showToast("❌ خطأ في التعديل", "error");
+          showToast("خطأ في التعديل", "error");
         }
       }
     );
   }
 
   function handleDeleteAnnotation(annotationId, anchor) {
-    if (!confirm("🗑️ هل تريد بالتأكيد حذف هذا التظليل وملاحظته نهائياً؟")) return;
+    if (!confirm("هل تريد بالتأكيد حذف هذا التظليل وملاحظته نهائياً؟")) return;
 
     removeTooltip();
 
@@ -877,9 +885,9 @@
           currentAnnotations = currentAnnotations.filter((a) => a.id !== annotationId);
           updateLocalCache(currentAnnotations);
 
-          showToast("🗑️ تم حذف التظليل بنجاح", "success");
+          showToast("تم حذف التظليل بنجاح", "success");
         } else {
-          showToast("❌ خطأ في الحذف", "error");
+          showToast("خطأ في الحذف", "error");
         }
       }
     );
@@ -926,6 +934,7 @@
   }
 
   async function restoreHighlights() {
+    if (!isHighlightingEnabled) return; // Don't restore if toggle is off
     const currentUrl = canonicalizeUrl(window.location.href);
     const cacheKey = `wahaj_cache_${currentUrl}`;
 
@@ -979,7 +988,7 @@
           removeTooltip();
         }
         showToast(
-          isHighlightingEnabled ? "🌟 تم تفعيل التظليل الذكي" : "⏸️ تم إيقاف التظليل مؤقتاً",
+          isHighlightingEnabled ? "تم تفعيل التظليل الذكي" : "تم إيقاف التظليل مؤقتاً",
           "success"
         );
       }
@@ -1027,35 +1036,10 @@
     setTimeout(() => toast.remove(), 3000);
   }
 
-  function getCategoryLabel(category) {
-    const labels = {
-      SPECIES: "🌿",
-      PHENOMENON: "🔬",
-      WORK: "📖",
-      EVENT: "⚔️",
-      CHEMICAL: "🧪",
-      ANATOMY: "🫀",
-      LAW_RULE: "⚖️",
-      PERIOD: "⏳",
-      ASTRONOMY: "🌌",
-      ARTIFACT: "🏺",
-      UNIVERSITY: "🏛️",
-      LOCATION: "📍",
-      PERSON: "👤",
-      ORGANIZATION: "🏢",
-      DISEASE: "🦠",
-      MEDICAL_TERM: "💊",
-      TECHNOLOGY: "💻",
-      CONCEPT: "💡",
-      FIELD: "📚",
-      DATE: "📅",
-      OTHER: "🏷️",
-    };
-    return labels[category] || "🏷️";
-  }
 
   function getCategoryArabicName(category) {
     const names = {
+      GEOLOGY: "تضاريس / علوم الأرض",
       SPECIES: "كائن حي / نبات",
       PHENOMENON: "ظاهرة علمية",
       WORK: "مؤلَّف / وثيقة",

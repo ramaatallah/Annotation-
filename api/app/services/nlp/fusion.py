@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 CATEGORY_PRIORITY = {
     "UNIVERSITY": 100,
     "SPECIES": 96,
+    "GEOLOGY": 95,
     "PHENOMENON": 95,
     "CHEMICAL": 94,
     "ANATOMY": 93,
@@ -50,8 +51,19 @@ class EntityFusionEngine:
         original_text: str,
         bert_entities: List[Dict[str, Any]],
         llm_entities: List[Dict[str, Any]],
+        cached_entities: List[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
-        """Merges two entity streams into a cohesive, non-overlapping entity list."""
+        """Merges cached, LLM, and BERT entity streams into a cohesive, non-overlapping entity list."""
+        # 0. Sanitize cached entities as highest-fidelity verified knowledge
+        clean_cached: List[Dict[str, Any]] = []
+        if cached_entities:
+            for ent in cached_entities:
+                clean = self._sanitize_entity(original_text, ent)
+                if clean:
+                    clean["source"] = "KnowledgeCache"
+                    clean["confidence"] = 0.99
+                    clean_cached.append(clean)
+
         # 1. Sanitize and accept all LLM entities as primary ground truth
         clean_llm: List[Dict[str, Any]] = []
         for ent in llm_entities:
@@ -60,25 +72,25 @@ class EntityFusionEngine:
                 clean["source"] = "Groq"
                 clean_llm.append(clean)
 
-        # 2. Add BERT entities ONLY as gap-fillers for unmentioned entities, NEVER overriding or corrupting LLM entities
+        # 2. Add BERT entities ONLY as gap-fillers for unmentioned entities, NEVER overriding or corrupting LLM/Cache entities
         clean_bert: List[Dict[str, Any]] = []
         for ent in bert_entities:
             clean = self._sanitize_entity(original_text, ent)
             if not clean:
                 continue
             clean["source"] = "BERT"
-            # Discard BERT entity if it overlaps in position or text with any high-confidence LLM entity
-            overlaps_llm = any(
+            # Discard BERT entity if it overlaps in position or text with any high-confidence LLM or Cache entity
+            overlaps = any(
                 (clean["start_char"] < g["end_char"] and clean["end_char"] > g["start_char"]) or
                 (clean["text"] == g["text"]) or
                 (clean["text"] in g["text"] and len(clean["text"]) >= 3) or
                 (g["text"] in clean["text"] and len(g["text"]) >= 3)
-                for g in clean_llm
+                for g in (clean_cached + clean_llm)
             )
-            if not overlaps_llm:
+            if not overlaps:
                 clean_bert.append(clean)
 
-        all_candidates = clean_llm + clean_bert
+        all_candidates = clean_cached + clean_llm + clean_bert
         if not all_candidates:
             return []
 
@@ -98,7 +110,13 @@ class EntityFusionEngine:
 
             # Case A: Exact match in span or text -> Merge & boost confidence
             if candidate["start_char"] == last["start_char"] and candidate["end_char"] == last["end_char"]:
-                if candidate.get("source") == "Groq":
+                if candidate.get("source") == "KnowledgeCache":
+                    last["category"] = candidate["category"]
+                    last["label_ar"] = candidate.get("label_ar") or last.get("label_ar")
+                    last["source"] = "KnowledgeCache"
+                elif last.get("source") == "KnowledgeCache":
+                    pass  # Keep verified KnowledgeCache intact
+                elif candidate.get("source") == "Groq":
                     last["category"] = candidate["category"]
                     last["label_ar"] = candidate.get("label_ar")
                 elif last.get("source") != "Groq" and CATEGORY_PRIORITY.get(candidate["category"], 0) > CATEGORY_PRIORITY.get(last["category"], 0):
@@ -106,11 +124,19 @@ class EntityFusionEngine:
                     last["label_ar"] = candidate.get("label_ar")
                 # Boost confidence for agreement
                 last["confidence"] = min(1.0, round(max(last["confidence"], candidate["confidence"]) + 0.05, 4))
-                last["source"] = "Hybrid"
+                if last.get("source") != "KnowledgeCache":
+                    last["source"] = "Hybrid"
                 continue
 
             # Case B: Overlap detected
             if candidate["start_char"] < last["end_char"]:
+                # KnowledgeCache has top precedence
+                if candidate.get("source") == "KnowledgeCache":
+                    merged[-1] = candidate
+                    continue
+                if last.get("source") == "KnowledgeCache":
+                    continue
+
                 # Groq LLM has superior semantic boundaries and context over legacy BERT
                 if candidate.get("source") == "Groq" and last.get("source") == "BERT":
                     merged[-1] = candidate
@@ -327,17 +353,43 @@ class EntityFusionEngine:
         if text_val.startswith(NEGATION_VERB_PREFIXES):
             return None
 
+        # Clean unclosed Wikipedia/citation brackets and language annotations (e.g. "السرطان (الإنجليزية" -> "السرطان")
+        if "(" in text_val and ")" not in text_val:
+            text_val = text_val.split("(")[0].strip()
+        if "[" in text_val and "]" not in text_val:
+            text_val = text_val.split("[")[0].strip()
+        text_val = re.sub(r"\s*\(\s*(?:بال)?(?:إنجليزية|عربية|لاتينية|يونانية)?[^)]*$", "", text_val).strip()
+        text_val = text_val.strip(" ،,.:؟!؛\t\n\"'()[]{}«»")
+        if not text_val or len(text_val) < 2:
+            return None
+
         # Reject standalone quantifiers and determiners
         STANDALONE_QUANTIFIERS = {"بضع", "بضعة", "عدة", "بعض", "كثير", "قليل", "جميع", "كل", "أحد", "إحدى"}
         if text_val in STANDALONE_QUANTIFIERS:
             return None
 
-        # Normalize attached proclitics on defined nouns
-        if len(text_val) > 4:
+        # Reject standalone generic geographical common nouns unless part of a specific named place
+        STANDALONE_GENERIC_LOCS = {"مدينة", "قرية", "بلدة", "نهر", "النهر", "بحيرة", "البحيرة", "شاطئ", "الشاطئ", "شواطئ", "الشواطئ", "بحر", "البحر", "بحار", "البحار"}
+        if text_val in STANDALONE_GENERIC_LOCS and ent.get("category") == "LOCATION":
+            return None
+
+        # Normalize attached proclitics on defined nouns and proper names
+        if len(text_val) > 3:
             if text_val.startswith("لل") and not text_val.startswith(("الله", "اللهم", "الليل", "الليث")):
                 text_val = "ال" + text_val[2:]
             elif text_val.startswith(("بال", "فال", "كال", "وال")):
                 text_val = "ال" + text_val[3:]
+            elif text_val.startswith(("بأ", "بإ", "بآ", "كأ", "كإ", "لأ", "لإ")):
+                text_val = text_val[1:]
+            elif (
+                len(text_val) > 4
+                and text_val[0] in ("ب", "ك", "ل")
+                and (
+                    any(loc in text_val[1:] for loc in ["أمريكا", "أفريقيا", "أوروبا", "آسيا", "فلسطين", "باريس", "لندن", "مصر", "الأردن", "العراق", "سوريا", "لبنان"])
+                    or ent.get("category") == "LOCATION"
+                )
+            ):
+                text_val = text_val[1:]
 
         # Recalculate true span in original text
         found_pos = original_text.find(text_val)
@@ -347,8 +399,36 @@ class EntityFusionEngine:
 
         category = ent.get("category", "CONCEPT").upper()
 
-        # Specific-First Hierarchy Recovery:
-        # Upgrade CONCEPT to more specific scientific categories when clear semantic markers are present
+        # Specific-First Hierarchy Recovery & Contextual Corrections:
+        GEOLOGY_TERMS = {
+            "قشرة الأرض", "قشرة الكواكب", "القشرة الأرضية", "قشرة كوكب", "غرف الصهارة",
+            "غرفة الصهارة", "الصهارة", "الوشاح", "النواة الأرضية", "بركان", "البراكين",
+            "براكين", "الحمم البركانية", "الرماد البركاني", "التلال المخروطية", "الجبال البركانية",
+            "تلال مخروطية", "جبال بركانية", "صفائح تكتونية", "فوهة بركانية"
+        }
+
+        # Rule 1: Never classify geological structures or planet layers as biological anatomy
+        if category == "ANATOMY":
+            if any(term in text_val for term in ["قشرة", "صهارة", "وشاح", "نواة الأرض", "طبقة صخرية", "أرضية"]):
+                category = "GEOLOGY"
+                if not ent.get("label_ar"):
+                    ent["label_ar"] = "طبقة صخرية / بنية كوكبية" if "قشرة" in text_val else "تراكيب جيولوجية باطنية"
+
+        # Rule 2: Never classify natural volcanoes or landforms as human-made artifacts
+        if category == "ARTIFACT":
+            if any(term in text_val for term in ["بركان", "براكين", "زلزال", "تلال", "جبال", "فوهة", "صخور"]):
+                category = "GEOLOGY"
+                if not ent.get("label_ar"):
+                    ent["label_ar"] = "معالم وتضاريس بركانية"
+
+        # Rule 3: Upgrade general landforms and soil layers from LOCATION/CONCEPT to GEOLOGY
+        if category in ("LOCATION", "CONCEPT"):
+            if any(term in text_val for term in ["التلال المخروطية", "الجبال البركانية", "تلال مخروطية", "جبال بركانية", "الطبقة العليا للتربة", "طبقة التربة", "طبقات التربة", "التربة"]):
+                category = "GEOLOGY"
+                if not ent.get("label_ar"):
+                    ent["label_ar"] = "طبقة جيولوجية / تربة سطحية" if "تربة" in text_val else "تضاريس ومعالم جيولوجية"
+
+        # Rule 4: Upgrade CONCEPT to specific categories when clear markers are present
         if category == "CONCEPT":
             CHEM_MARKERS = {
                 "أكسيد", "كربون", "هيدروجين", "نيتروجين", "أكسجين", "كبريت", "كالسيوم", "صوديوم",
@@ -356,7 +436,7 @@ class EntityFusionEngine:
                 "بترول", "نفط", "فحم", "غاز طبيعي", "حمض", "كلوريد", "فلز", "سبيكة"
             }
             PHENOM_MARKERS = {
-                "احتباس حراري", "مد وجزر", "رياح", "عاصفة", "زلزال", "بركان", "كسوف", "خسوف",
+                "احتباس حراري", "مد وجزر", "رياح", "عاصفة", "زلزال", "كسوف", "خسوف",
                 "حركة أمواج", "أمواج", "تمثيل ضوئي", "تبخر", "تكاثف", "إشعاع", "جاذبية"
             }
             GEO_MARKERS = {
@@ -366,7 +446,11 @@ class EntityFusionEngine:
                 "الشمس", "القمر", "كوكب", "مجرة", "سديم"
             }
 
-            if any(term in text_val for term in CHEM_MARKERS):
+            if any(term in text_val for term in GEOLOGY_TERMS):
+                category = "GEOLOGY"
+                if not ent.get("label_ar"):
+                    ent["label_ar"] = "تضاريس ومعالم جيولوجية"
+            elif any(term in text_val for term in CHEM_MARKERS):
                 category = "CHEMICAL"
                 if not ent.get("label_ar"):
                     ent["label_ar"] = "مركب كيميائي / مادة"
