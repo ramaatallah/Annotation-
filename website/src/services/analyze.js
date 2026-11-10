@@ -1,18 +1,18 @@
-// خدمة التواصل مع الـ API: تحليل النص (كيانات + دقة + جذور)
+// API service: Text analysis (entities, confidence scores, roots)
 //
-// الباك إند (api/main.py) بيرد على POST {VITE_API_URL}/analyze بـ:
+// Backend endpoint: POST {VITE_API_URL}/analyze
 //   { "original_text", "entities": [ { "text", "category", "confidence", "source", "start_char", "end_char", "roots": [{word, root}] } ], "all_roots": [{word, root}] }
-// إذا ما في VITE_API_URL في ملف .env بيشتغل وضع تجريبي (mock) عشان تجرب الواجهة فوراً.
+// Falls back to mock mode if VITE_API_URL is not configured.
 
-// نشيل أي "/" بالنهاية عشان ما يصير //analyze
+// Strip trailing slash
 const API_URL = (import.meta.env?.VITE_API_URL ?? '').trim().replace(/\/+$/, '');
 
-// أسماء مختصرة -> الأسماء اللي بيرجّعها الباك إند
+// Label aliases to backend schema
 const LABEL_ALIAS = { PER: 'PERSON', LOC: 'LOCATION', ORG: 'ORGANIZATION' };
 
 export async function analyzeText(text) {
   if (!API_URL) {
-    await new Promise((r) => setTimeout(r, 400)); // محاكاة زمن الشبكة
+    await new Promise((r) => setTimeout(r, 400)); // Simulate network delay
     return { entities: mockEntities(text), allRoots: [], mock: true };
   }
 
@@ -30,7 +30,7 @@ export async function analyzeText(text) {
 
   const data = await res.json();
 
-  // تحويل الاستجابة من الباك إند للشكل المتوقع في الواجهة
+  // Transform backend response to frontend format
   const rawEntities = data.entities ?? [];
   const entities = normalize(text, rawEntities);
   const allRoots = data.all_roots ?? [];
@@ -38,7 +38,7 @@ export async function analyzeText(text) {
   return { entities, allRoots, mock: false };
 }
 
-// توحيد الرد: label/score/roots موحّدة، وحساب start/end إذا ناقصة، وحذف التداخل
+// Normalize response: standardize label/score/roots, calculate offsets, prevent overlaps
 function normalize(text, entities) {
   let cursor = 0;
   const out = [];
@@ -57,7 +57,7 @@ function normalize(text, entities) {
     const rawScore = Number(e.confidence ?? e.score ?? 0);
     const score = rawScore <= 1 ? rawScore * 100 : rawScore;
 
-    // الجذور: فقط المحسومة (word + root)، الباك إند بيرجعهم مفلترة
+    // Filter roots with resolved root values
     const roots = (e.roots ?? []).filter(r => r.root);
 
     out.push({
@@ -70,22 +70,22 @@ function normalize(text, entities) {
     });
   }
   out.sort((a, b) => a.start - b.start || b.end - a.end);
-  // نمنع التداخل (وإلا التظليل بيتخربط)
+  // Prevent overlapping spans
   return out.filter((e, i) => i === 0 || e.start >= out[i - 1].end);
 }
 
-/* ---------------- وضع تجريبي فقط (احذفه عند ربط الـ API) ----------------
-   قبل: كان بيعرف 9 أسماء ثابتة بس، فأي نص تاني يطلع "ما في كيانات".
-   هلأ: قاموس أكبر + قواعد بسيطة (جامعة X، مدينة X، الشاعر X ...) + تعامل مع
-   التشكيل وأشكال الألف والسوابق (و/ب/ل/ف/ك) والـ "ال". */
+/* ---------------- Mock / Offline Gazetteer Rules ---------------- */
+
+
+
 
 const GAZETTEER = [
-  // مؤسسات
+  // Organizations
   ['جامعة النجاح الوطنية', 'UNIVERSITY', 'نجح'], ['جامعة بيرزيت', 'UNIVERSITY', 'برزت'],
   ['جامعة القدس', 'UNIVERSITY', 'قدس'], ['جامعة الخليل', 'UNIVERSITY', 'خلل'],
   ['الأمم المتحدة', 'ORGANIZATION', 'أمم'], ['منظمة الصحة العالمية', 'ORGANIZATION', 'صحح'],
   ['الجامعة العربية', 'ORGANIZATION', 'عرب'], ['الهلال الأحمر', 'ORGANIZATION', 'هلل'],
-  // أماكن
+  // Locations
   ['نابلس', 'LOCATION', 'نبلس'], ['رام الله', 'LOCATION', 'رمل'], ['القدس', 'LOCATION', 'قدس'],
   ['فلسطين', 'LOCATION', 'فلسطن'], ['غزة', 'LOCATION', 'غزز'], ['الخليل', 'LOCATION', 'خلل'],
   ['بيت لحم', 'LOCATION', 'بيت'], ['جنين', 'LOCATION', 'جنن'], ['طولكرم', 'LOCATION', 'طلكرم'],
@@ -101,14 +101,14 @@ const GAZETTEER = [
   ['ليبيا', 'LOCATION', 'ليب'], ['السودان', 'LOCATION', 'سود'], ['اليمن', 'LOCATION', 'يمن'],
   ['تركيا', 'LOCATION', 'ترك'], ['أمريكا', 'LOCATION', 'أمرك'], ['أوروبا', 'LOCATION', 'أرب'],
   ['لندن', 'LOCATION', 'لند'], ['باريس', 'LOCATION', 'برس'], ['واشنطن', 'LOCATION', 'وشن'],
-  // أشخاص
+  // Persons
   ['محمود درويش', 'PERSON', 'حمد'], ['غسان كنفاني', 'PERSON', 'غسن'], ['إدوارد سعيد', 'PERSON', 'سعد'],
   ['فدوى طوقان', 'PERSON', 'فدي'], ['سميح القاسم', 'PERSON', 'سمح'], ['ناجي العلي', 'PERSON', 'نجو'],
   ['إبراهيم طوقان', 'PERSON', 'برهم'], ['جبرا إبراهيم جبرا', 'PERSON', 'جبر'],
   ['نزار قباني', 'PERSON', 'نزر'], ['أم كلثوم', 'PERSON', 'كلثم'], ['ياسر عرفات', 'PERSON', 'يسر'],
 ];
 
-/* eslint-disable no-misleading-character-class -- نقصد حروف التشكيل المركّبة عن قصد */
+/* eslint-disable no-misleading-character-class -- Intended compound diacritics */
 const AR_WORD = /[\u0621-\u064A\u064B-\u0652\u0670]+/g;
 const norm = (s) =>
   s.replace(/[\u064B-\u0652\u0670\u0640]/g, '').replace(/[\u0623\u0625\u0622\u0671]/g, 'ا').replace(/\u0649/g, 'ي').replace(/\u0629/g, 'ه');
@@ -127,7 +127,7 @@ const PER_TRIG = new Set(['شاعر', 'كاتب', 'روائي', 'دكتور', '�
 const COMPOUND = new Set(['بيت', 'عين', 'دير', 'خربه', 'كفر', 'ام', 'ابو', 'راس', 'جبل', 'وادي', 'عبد', 'ابن', 'بن'].map(norm));
 const STOP = new Set(['في', 'من', 'على', 'الي', 'عن', 'مع', 'و', 'ثم', 'حول', 'بعد', 'قبل', 'عند', 'هذا', 'هذه', 'ان', 'انه', 'التي', 'الذي', 'قد', 'لقد', 'كان', 'كانت', 'او', 'لكن', 'قال', 'قالت'].map(norm));
 
-// احتمالات الكلمة: بدون سابقة، أو مع سابقة (و/ب/ل/ف/ك)، أو "لل"، أو "ول"/"وب"...
+// Word variants: with or without proclitic prefixes
 function variants(tok, n = tok.n, shift = 0) {
   const out = [{ core: stripAl(n), shift, al: hasAl(n), pref: shift > 0 }];
   if (n.length > 3) {
@@ -152,14 +152,14 @@ function mockEntities(text) {
   const add = (i, j, shift, label, root) => {
     const start = toks[i].start + shift;
     const end = toks[j].end;
-    const score = 82 + ((start * 7 + (end - start) * 3) % 15) + 0.5; // قيمة ثابتة لكل موضع
-    // الجذور: فقط كلمة + جذر
+    const score = 82 + ((start * 7 + (end - start) * 3) % 15) + 0.5; // Deterministic score per position
+    // Roots: word and root mapping
     const roots = root && root !== '—' ? [{ word: text.slice(start, end), root }] : [];
     found.push({ text: text.slice(start, end), label, roots, start, end, score });
     for (let k = i; k <= j; k++) taken.add(k);
   };
 
-  // 1) القاموس
+  // 1) Gazetteer lookup
   for (let i = 0; i < toks.length; i++) {
     if (taken.has(i)) continue;
     for (const en of ENTRIES) {
@@ -175,7 +175,7 @@ function mockEntities(text) {
     }
   }
 
-  // 2) قواعد بسيطة: جامعة X / مدينة X / الشاعر X
+  // 2) Trigger patterns
   const nextOk = (i) => i < toks.length && !taken.has(i) && adjacent(text, toks[i - 1], toks[i]) && !STOP.has(toks[i].n);
   for (let i = 0; i < toks.length; i++) {
     if (taken.has(i)) continue;

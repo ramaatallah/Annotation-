@@ -88,7 +88,7 @@ class LocalBertNER:
                     end_char = item.get("end", start_char + len(entity_text))
 
                     if entity_text and len(entity_text) > 1:
-                        # Strip proclitic conjunction 'و' if attached by BERT (e.g. 'والقدس' -> 'القدس', 'وصلاح' -> 'صلاح')
+                        # Strip proclitic conjunction if attached by BERT
                         clean_start = max(0, start_char)
                         clean_end = min(len(text), end_char)
                         if (
@@ -109,7 +109,7 @@ class LocalBertNER:
                             "end_char": clean_end,
                         })
 
-                # Repair BERT sub-token splits where tokens are contiguous without space (e.g. "والقد" + "س" -> "والقدس")
+                # Repair BERT sub-token splits where tokens are contiguous without space
                 repaired = []
                 for e in entities:
                     if repaired and repaired[-1]["end_char"] == e["start_char"] and repaired[-1]["category"] == e["category"]:
@@ -133,7 +133,7 @@ class LocalBertNER:
         entities = []
 
         # 1. Universities, Colleges, and Educational Institutions
-        # Matches: جامعة النجاح الوطنية, مدرسة النجاح الوطنية, كلية النجاح, جامعة بيرزيت, etc.
+        # Matches academic institution prefixes followed by name tokens
         edu_pattern = rf"\b{ACADEMIC_PREFIXES}\s+[\u0600-\u06FF]+(?:\s+[\u0600-\u06FF]+){{0,2}}"
         for match in re.finditer(edu_pattern, text):
             matched_str = match.group().strip()
@@ -164,7 +164,7 @@ class LocalBertNER:
                     "end_char": match.end(),
                 })
 
-        # 3. Dates, Years, Weeks, and Eras (e.g. عام 1965, سنة 1948, الأسبوع 20, 3 أشهر, الثلث الأخير)
+        # 3. Dates, Years, Weeks, and Eras
         date_pattern = (
             r"(?:عام|سنة|تاريخ|شهر|الأسبوع|أسبوع|يوم)\s+\d+(?:\s*م)?"
             r"|(?:\d{1,2}\s+(?:يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر)(?:\s+\d{4})?)"
@@ -182,7 +182,7 @@ class LocalBertNER:
                 "end_char": match.end(),
             })
 
-        # 4. Universal Scientific & Clinical Conditions (e.g. أمراض القلب, مرض السكري, اضطراب كلى الجنين)
+        # 4. Universal Scientific & Clinical Conditions
         ARABIC_WORD = r"[\u0621-\u064A\u0671-\u06D3]+"
         clinical_pattern = rf"\b(?:أمراض|مرض|متلازمة|اضطراب|نقص)\s+{ARABIC_WORD}(?:\s+{ARABIC_WORD}){{0,2}}"
         for match in re.finditer(clinical_pattern, text):
@@ -218,7 +218,7 @@ class LocalBertNER:
                     "end_char": match.end(),
                 })
 
-        # 6. Academic Degrees and Programs (e.g. درجات البكالوريوس، الماجستير، الدبلوم، التعليم العالي)
+        # 6. Academic Degrees and Programs
         for deg in DEGREE_TERMS:
             pattern = rf"(?:درجة\s+|درجات\s+)?{re.escape(deg)}"
             for match in re.finditer(pattern, text):
@@ -231,7 +231,7 @@ class LocalBertNER:
                     "end_char": match.end(),
                 })
 
-        # 7. Academic Fields and Disciplines (e.g. الكيمياء، الفيزياء، أصول الدين، الطب، علم المناعة)
+        # 7. Academic Fields and Disciplines
         for field in ACADEMIC_FIELDS:
             pattern = rf"\b{re.escape(field)}\b"
             for match in re.finditer(pattern, text):

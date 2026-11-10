@@ -279,7 +279,7 @@ class AnnotationService:
                 func.upper(DetectedEntity.category) == category.upper()
             )
 
-        # Filter by morphological trilateral root (e.g. جمع, درس, وطن)
+        # Filter by morphological trilateral root
         if root:
             if not category:
                 q = q.join(Annotation.entities)

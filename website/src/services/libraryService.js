@@ -1,6 +1,6 @@
 import { supabase, supabaseReady } from '../lib/supabase';
 
-// بيانات تجريبية للزائر (Demo User)
+// Demo data for guest/demo mode
 export const DEMO_ITEMS = [
   { id: 'd1', text: 'جامعة النجاح الوطنية', type: 'ORG', root: 'نجح', note: 'مؤسسة أكاديمية في نابلس', source: 'news.palestine.org', created_at: '2026-10-20' },
   { id: 'd2', text: 'نابلس', type: 'LOC', root: 'نبلس', note: '', source: 'news.palestine.org', created_at: '2026-10-20' },

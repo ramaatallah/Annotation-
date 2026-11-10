@@ -1,12 +1,12 @@
 """Intelligent Academic Named Entity Recognition using Groq LLM API.
 
 Specializes in identifying high-level scientific and academic concepts across all domains:
-- UNIVERSITY (جامعات وكليات ومراكز بحثية)
-- CONCEPT (مفاهيم علمية وفلسفية وحالات فسيولوجية)
-- DISEASE (أمراض، متلازمات، واعتلالات)
-- MEDICAL_TERM (أدوية، مستحضرات، مصطلحات طبية، أعضاء)
-- TECHNOLOGY (تقنيات ونظم برمجية وحاسوبية)
-- FIELD (حقول وتخصصات علمية)
+- UNIVERSITY (Universities, colleges, and research institutions)
+- CONCEPT (Scientific and philosophical concepts, theoretical models)
+- DISEASE (Diseases, syndromes, and clinical disorders)
+- MEDICAL_TERM (Medications, pharmaceutical terms, anatomy)
+- TECHNOLOGY (Technologies, software systems, and engineering frameworks)
+- FIELD (Academic fields and scientific disciplines)
 - Standard entities (PERSON, ORGANIZATION, LOCATION, DATE)
 """
 

@@ -118,11 +118,11 @@ class EntityFusionEngine:
                 if last.get("source") == "Groq" and candidate.get("source") == "BERT":
                     continue
 
-                # Sub-span containment check: if candidate is completely inside last (e.g. 'فلسطين' inside 'بنك فلسطين')
+                # Sub-span containment check
                 if candidate["start_char"] >= last["start_char"] and candidate["end_char"] <= last["end_char"]:
                     continue
 
-                # If candidate completely encompasses last (e.g. 'جامعة النجاح الوطنية' vs 'جامعة النجاح')
+                # Encompassing span check
                 if candidate["start_char"] <= last["start_char"] and candidate["end_char"] >= last["end_char"]:
                     merged[-1] = candidate
                     merged[-1]["confidence"] = min(1.0, round(candidate["confidence"] + 0.03, 4))
@@ -142,7 +142,7 @@ class EntityFusionEngine:
             # Case C: No overlap -> Append cleanly
             merged.append(candidate)
 
-        # Post-pass: Stitch adjacent fragments (e.g., "محمود" + "درويش", "رام" + "الله")
+        # Post-pass: Stitch adjacent compound entities
         merged = self._stitch_adjacent_entities(original_text, merged)
 
         # Deduplicate identical entity texts to keep cards and annotations clean
@@ -191,24 +191,24 @@ class EntityFusionEngine:
             prev = stitched[-1]
             gap = original_text[prev["end_char"]:ent["start_char"]]
 
-            # Sub-token split without space (e.g. HuggingFace token cut: "والقد" + "س" -> "والقدس")
+            # Sub-token split without space
             if gap == "" and prev["category"] == ent["category"]:
                 prev["text"] = original_text[prev["start_char"]:ent["end_char"]]
                 prev["end_char"] = ent["end_char"]
                 prev["confidence"] = max(prev["confidence"], ent["confidence"])
                 continue
 
-            # Check if next word begins with coordinating conjunction 'و' -> separate entity!
+            # Separate entity if word begins with conjunction
             if ent["text"].startswith("و") and len(ent["text"]) > 2:
                 stitched.append(ent)
                 continue
 
             should_stitch = False
             if gap in (" ", "-"):
-                # Compound personal names (e.g. "محمود" + "درويش")
+                # Compound personal names
                 if prev["category"] == "PERSON" and ent["category"] == "PERSON":
                     should_stitch = True
-                # Compound educational / organization terms
+                # Compound educational or organization terms
                 elif {prev["category"], ent["category"]} <= {"UNIVERSITY", "ORGANIZATION"}:
                     should_stitch = True
                 # Compound locations starting with known prefix
@@ -233,8 +233,7 @@ class EntityFusionEngine:
     @staticmethod
     def _snap_to_word_boundaries(text: str, start: int, end: int) -> tuple:
         """Expands start and end outward to natural Arabic word boundaries.
-        Guarantees that no entity span starts or ends in the middle of an Arabic word.
-        Fixes token truncation issues universally (e.g. 'الطّاق' -> 'الطاقة', 'غاز الطبي' -> 'الغاز الطبيعي').
+        Guarantees that no entity span starts or ends in the middle of a word.
         """
         if not text or start < 0 or end > len(text) or start >= end:
             return start, end, text[start:end] if text else ""
@@ -246,7 +245,7 @@ class EntityFusionEngine:
         while start > 0 and word_char_pattern.match(text[start - 1]):
             start -= 1
 
-        # Expand end forward if it cuts inside a word (e.g. missing ة, ي, ين, ات)
+        # Expand end forward if it cuts inside a word
         while end < len(text) and word_char_pattern.match(text[end]):
             end += 1
 
@@ -286,13 +285,12 @@ class EntityFusionEngine:
             else:
                 text_val = actual_sub.strip()
 
-        # Universal Word Boundary Snapping: Snap any clipped sub-word to its full natural bounds in original_text
+        # Snap any clipped sub-word to its full natural bounds in original_text
         start, end, text_val = self._snap_to_word_boundaries(original_text, start, end)
         if not text_val or len(text_val) < 2:
             return None
 
-        # Universal Arabic Particle & Preposition Normalization:
-        # Entities are substantive noun phrases; they must never start or end with grammatical particles
+        # Normalize particles and prepositions
         ARABIC_PARTICLES = {
             "عن", "في", "من", "على", "إلى", "مع", "لـ", "بـ", "كـ", "أو", "و", "فـ", "ثم",
             "حتى", "منذ", "بين", "نحو", "لدى", "ضد", "حول", "دون", "غير", "سوى", "إذ", "إذا",
@@ -304,15 +302,15 @@ class EntityFusionEngine:
         if not raw_words:
             return None
 
-        # Strip trailing prepositions/particles (e.g. 'النحاس عن' -> 'النحاس')
+        # Strip trailing prepositions/particles
         while raw_words and raw_words[-1] in ARABIC_PARTICLES:
             raw_words.pop()
 
-        # Strip leading prepositions/particles (e.g. 'في روما' -> 'روما')
+        # Strip leading prepositions/particles
         while raw_words and raw_words[0] in ARABIC_PARTICLES:
             raw_words.pop(0)
 
-        # Strip common leading verbs if accidentally glued (e.g. 'عَرَف الإنسان' -> 'الإنسان')
+        # Strip common leading verbs if accidentally glued
         COMMON_VERB_PREFIXES = {"عرف", "عَرَف", "وجد", "وُجد", "قام", "يبدأ", "تبدأ", "أدى", "أدت", "تؤدي", "يؤدي", "كان", "كانت"}
         if len(raw_words) > 1 and raw_words[0] in COMMON_VERB_PREFIXES:
             raw_words.pop(0)
@@ -324,19 +322,17 @@ class EntityFusionEngine:
         if len(text_val) < 2:
             return None
 
-        # Universal Verb & Negation Rejection:
-        # Rejects any entity starting with Arabic negation or jussive particles (e.g. 'لم تحصل', 'لن يكون')
+        # Reject any entity starting with negation or jussive particles
         NEGATION_VERB_PREFIXES = ("لم ", "لن ", "لا ", "ما ", "ليس ", "ليست ", "كي ", "لكي ", "حتى ", "قد ")
         if text_val.startswith(NEGATION_VERB_PREFIXES):
             return None
 
-        # Universal Standalone Quantifier / Determiner Rejection:
+        # Reject standalone quantifiers and determiners
         STANDALONE_QUANTIFIERS = {"بضع", "بضعة", "عدة", "بعض", "كثير", "قليل", "جميع", "كل", "أحد", "إحدى"}
         if text_val in STANDALONE_QUANTIFIERS:
             return None
 
-        # Universal Proclitic Normalization:
-        # Normalize attached prepositions (لـ / بـ / كـ) on defined nouns (e.g. 'للنحاس' -> 'النحاس')
+        # Normalize attached proclitics on defined nouns
         if len(text_val) > 4:
             if text_val.startswith("لل") and not text_val.startswith(("الله", "اللهم", "الليل", "الليث")):
                 text_val = "ال" + text_val[2:]
@@ -428,12 +424,12 @@ class EntityFusionEngine:
         val = ent["text"]
         cat = ent["category"]
 
-        # Strip leading 'و' or 'ف' conjunction if glued to entity
+        # Strip leading conjunction if glued to entity
         if val.startswith(("و", "ف")) and len(val) > 3 and val not in {"واشنطن", "وادي", "ورقلة", "ويلز", "ولايات", "فلسطين", "فيينا"}:
             start += 1
             val = text[start:end]
 
-        # Expand backward if preceded by compound name prefix (e.g. 'عبد الله', 'صلاح الدين', 'ابن سينا')
+        # Expand backward if preceded by compound name prefix
         before_text = text[:start].rstrip()
         for prefix in ["عبد", "ابن", "بن", "أبو", "ابو", "أم", "ام", "آل", "سيف", "نور", "صلاح", "علاء", "بهاء", "جمال"]:
             if before_text.endswith(prefix) and (len(before_text) == len(prefix) or before_text[-len(prefix) - 1] == " "):
@@ -442,7 +438,7 @@ class EntityFusionEngine:
                 val = text[start:end]
                 break
 
-        # Expand forward for compound organizations / universities (e.g. الوطنية, الأمريكية, الإسلامية)
+        # Expand forward for compound organizations and universities
         if cat in ("ORGANIZATION", "UNIVERSITY"):
             after_text = text[end:].lstrip()
             for suffix in ["الوطنية", "الإسلامية", "الأمريكية", "العربية", "الدولية", "المفتوحة", "التخصصي", "العالمية", "المتحدة"]:
@@ -451,8 +447,7 @@ class EntityFusionEngine:
                     val = text[start:end]
                     break
 
-        # Expand forward for compound places (e.g. رام الله, بيت لحم, شرم الشيخ, كفر الشيخ)
-        # ONLY expand if it's currently a single word!
+        # Expand forward for compound locations
         if cat == "LOCATION":
             words = val.split()
             if len(words) == 1 and words[0] in {"رام", "بيت", "دير", "كفر", "عين", "شرم", "بئر", "أبو", "أم", "وادي", "رأس", "بور"}:
@@ -460,7 +455,7 @@ class EntityFusionEngine:
                 next_word_m = re.match(r"^([\u0600-\u06FF]+)", after_text)
                 if next_word_m:
                     nw = next_word_m.group(1)
-                    # Make sure the next word is not a conjunction like 'والقدس' or 'وعمان'
+                    # Verify next word is not a conjunction
                     if not nw.startswith("و"):
                         end = text.find(nw, end) + len(nw)
                         val = text[start:end]

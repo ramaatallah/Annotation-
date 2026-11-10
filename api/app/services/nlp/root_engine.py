@@ -4,7 +4,7 @@ Fully morphology-based extraction:
 - Uses CAMeL Tools MLEDisambiguator (calima-msa-r13) for contextual morphological disambiguation.
 - Uses MorphologicalTokenizer (d3tok) for morpheme segmentation (affixes & clitics).
 - Uses simple_word_tokenize for sentence segmentation.
-- Extracts lexical Lemma (اللمة), Root (الجذر), POS (نوع الكلمة), and Segmentation (التجزئة الصرفية).
+- Extracts lexical Lemma, Root, POS, and Morphological Segmentation.
 - Resolves weak radicals (#) deterministically using Arabic morphophonemic rules.
 - Validates root: strictly 3 or 4 Arabic letters without symbols.
 - No manual dictionaries, no heuristic guessing, and no AI hallucinations.
@@ -21,7 +21,7 @@ ARABIC_DIACRITICS = re.compile(r"[\u064B-\u065F\u0670]")
 KASHIDA = re.compile(r"\u0640")
 ARABIC_LETTERS_ONLY = re.compile(r"^[\u0621-\u064A]+$")
 
-# Classical Arabic Stopwords & Grammatical Particles (حروف المعاني والأدوات التي ليس لها جذور صرفية)
+# Classical Arabic Stopwords & Grammatical Particles
 ARABIC_STOPWORDS = {
     "في", "من", "إلى", "على", "عن", "مع", "هذا", "هذه", "هؤلاء", "ذلك", "تلك",
     "الذي", "التي", "الذين", "اللاتي", "هو", "هي", "هم", "هن", "نحن", "أنا", "أنت",
@@ -44,14 +44,14 @@ def resolve_camel_root(raw_root: Optional[str], lex: Optional[str], word: Option
     """Validates and resolves CAMeL Tools root output into a pure 3 or 4 letter Arabic root.
     
     In CALIMA / SAMA databases, weak radicals undergoing phonological alternation
-    (حروف العلة: الأجوف، الناقص، المثال) are encoded with '#'.
+    are encoded with '#'.
     This function deterministically recovers the underlying weak radical ('و' or 'ي')
     based on Arabic morphophonemic principles.
     """
     if not raw_root or raw_root in ("NTWS", "O", "NON_ARABIC", "None"):
         return None
 
-    # CAMeL roots typically have dots between radicals: e.g. 'ج.م.ع' or '#.ط.ن' or 'ب.ر.م.ج'
+    # CAMeL roots have dots between radicals; '#' marks a weak/unknown radical
     parts = raw_root.split(".") if "." in raw_root else list(raw_root)
     if len(parts) not in (3, 4):
         return None
@@ -65,12 +65,12 @@ def resolve_camel_root(raw_root: Optional[str], lex: Optional[str], word: Option
             resolved.append(p)
             continue
 
-        # Quadrilateral root with weak radical (e.g. وسوس: '#.س.#.س')
+        # Quadrilateral root with weak radical
         if len(parts) == 4:
             if i == 0:
                 resolved.append("و" if not (clean_w.startswith("ي") or clean_lex.startswith("ي")) else "ي")
             elif i == 2:
-                # Doubled quadrilateral (مضاعف رباعي مثل وسوس): radical 2 equals radical 0
+                # Doubled quadrilateral: radical 2 equals radical 0
                 if len(parts) > 3 and parts[1] == parts[3]:
                     resolved.append(resolved[0])
                 elif "و" in clean_w or "و" in clean_lex:
@@ -81,15 +81,15 @@ def resolve_camel_root(raw_root: Optional[str], lex: Optional[str], word: Option
                 resolved.append("و")
             continue
 
-        # Position 0: الفاء (المثال الواوي أو اليائي)
+        # Position 0: initial radical (Mithal — weak initial)
         if i == 0:
             if clean_w.startswith(("يسر", "يئس", "يقن", "يتم", "يقظ")) or clean_lex.startswith(("يسر", "يئس", "يقن")):
                 resolved.append("ي")
             else:
-                # In classical Arabic, over 98% of initial weak roots are واوية (وطن، وصل، وقف، وعد، وقع، وزن...)
+                # In classical Arabic, over 98% of initial weak roots use 'و'
                 resolved.append("و")
 
-        # Position 1: العين (الأجوف)
+        # Position 1: medial radical (Ajwaf — hollow verb)
         elif i == 1:
             r0 = parts[0]
             r2 = parts[2] if len(parts) > 2 else ""
@@ -112,7 +112,7 @@ def resolve_camel_root(raw_root: Optional[str], lex: Optional[str], word: Option
                 else:
                     resolved.append("و")
 
-        # Position 2: اللام (الناقص أو اللفيف)
+        # Position 2: final radical (Naqis / Lafi — defective verb)
         elif i == 2:
             r1 = parts[1]
             tail = ""
@@ -124,10 +124,10 @@ def resolve_camel_root(raw_root: Optional[str], lex: Optional[str], word: Option
             if "و" in tail:
                 resolved.append("و")
             elif "ا" in tail and not ("ى" in tail or "ي" in tail):
-                # إذا كُتبت ألفاً ممدودة في الثلاثي فأصلها واو (دعا، عفا، نما، رجا، غزا)
+                # If ends with a long alef (maddah), root radical is 'و'
                 resolved.append("و")
             else:
-                # إذا كُتبت ألفاً مقصورة أو ياء فأصلها ياء (رمى، قضى، سعى، مستشفى، وفى، هدى)
+                # If ends with maqsura or ya, root radical is 'ي'
                 resolved.append("ي")
         else:
             resolved.append("و")

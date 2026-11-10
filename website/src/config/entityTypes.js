@@ -1,5 +1,5 @@
-// أنواع الكيانات وألوانها (مأخوذة من تصميم وهج). عدّلي المفاتيح لتطابق entityTypes.js في الإضافة.
-// أنواع الكيانات وألوانها المعتمدة في وهج عبر مختلف التخصصات الأكاديمية
+// Entity types and color schemes across academic disciplines
+
 export const ENTITY_TYPES = {
   SPECIES: { label: 'كائن حي / نبات', color: '#15803d', bg: '#dcfce7' },
   PHENOMENON: { label: 'ظاهرة علمية', color: '#0284c7', bg: '#e0f2fe' },

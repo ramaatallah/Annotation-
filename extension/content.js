@@ -2,12 +2,12 @@
  * Wahaj / وَهَج — Content Script
  * Enterprise Arabic Web Annotation & NLP Engine.
  *
- * Card Layout (As requested):
- * 1. 📖 النص المظلل (Selected Text)
- * 2. 📌 الملاحظة المكتوبة (Note - directly underneath)
- * 3. 🏷️ الكيانات والمفاهيم المكتشفة (Entities)
- * 4. 🔤 الجذور الصرفية الثلاثية (Trilateral Roots)
- * 5. أزرار التحكم (تعديل، حذف، إغلاق)
+ * Card Layout:
+ * 1. 📖 Selected Text
+ * 2. 📌 Note (directly underneath)
+ * 3. 🏷️ Discovered Entities & Concepts
+ * 4. 🔤 Trilateral Morphological Roots
+ * 5. Action Buttons (Edit, Delete, Close)
  */
 
 (() => {
@@ -679,13 +679,13 @@
   }
 
   /* ═══════════════════════════════════════════════
-     8. THE IN-PAGE INTERACTIVE CARD (Exact Requested Layout)
+     8. THE IN-PAGE INTERACTIVE CARD
      Order:
-     1. 📖 النص المظلل (Selected Text)
-     2. 📌 الملاحظة (Note)
-     3. 🏷️ الكيانات المكتشفة (Entities)
-     4. 🔤 الجذور الصرفية الثلاثية (Trilateral Roots)
-     5. أزرار التحكم (تعديل، حذف)
+     1. 📖 Selected Text
+     2. 📌 Note
+     3. 🏷️ Discovered Entities
+     4. 🔤 Trilateral Roots
+     5. Action buttons (Edit, Delete)
      ═══════════════════════════════════════════════ */
   function showTooltipCard(anchor, annotationData) {
     removeTooltip();
