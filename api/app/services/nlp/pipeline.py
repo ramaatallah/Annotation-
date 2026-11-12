@@ -15,6 +15,7 @@ from app.services.nlp.local_ner import local_bert_ner
 from app.services.nlp.llm_ner import groq_llm_ner
 from app.services.nlp.fusion import fusion_engine
 from app.services.nlp.root_engine import root_engine
+from app.services.nlp.entity_cache import entity_cache
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,10 @@ class ArabicNLPPipeline:
         """Executes the hybrid pipeline concurrently and returns normalized results."""
         start_time = time.perf_counter()
 
-        # Run Local BERT and Groq LLM concurrently
+        # 1. Instant sub-millisecond retrieval from Entity Knowledge Cache
+        cached_entities = entity_cache.lookup_entities(text)
+
+        # 2. Run Local BERT and Groq LLM concurrently
         loop = asyncio.get_event_loop()
 
         # Wrap synchronous BERT call in executor so it does not block the async event loop
@@ -39,8 +43,14 @@ class ArabicNLPPipeline:
             return_exceptions=False,
         )
 
-        # Merge candidate entities and resolve overlapping spans
-        merged_entities = fusion_engine.merge_entities(text, bert_entities, groq_entities)
+        # 3. Merge candidate entities (Cache + LLM + BERT) and resolve overlapping spans
+        merged_entities = fusion_engine.merge_entities(text, bert_entities, groq_entities, cached_entities)
+
+        # 4. Automatically remember newly discovered and verified entities in the knowledge cache
+        try:
+            entity_cache.remember_entities(merged_entities)
+        except Exception as e:
+            logger.warning(f"Could not auto-cache entities: {e}")
 
         # Extract morphological trilateral roots for all content words in the sentence
         # Only include resolved roots (word + root), skip unresolved for cleaner output

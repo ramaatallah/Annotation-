@@ -70,6 +70,12 @@ def init_db():
                     if col_name not in existing_ann_cols:
                         conn.execute(text(f"ALTER TABLE annotations ADD COLUMN {col_name} {col_type}"))
 
+                # Migrate detected_entities
+                res_ent = conn.execute(text("PRAGMA table_info(detected_entities)"))
+                existing_ent_cols = [r[1] for r in res_ent.fetchall()]
+                if "label_ar" not in existing_ent_cols:
+                    conn.execute(text("ALTER TABLE detected_entities ADD COLUMN label_ar VARCHAR(256)"))
+
                 conn.commit()
         except Exception:
             pass

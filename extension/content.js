@@ -2,12 +2,12 @@
  * Wahaj / وَهَج — Content Script
  * Enterprise Arabic Web Annotation & NLP Engine.
  *
- * Card Layout (As requested):
- * 1. 📖 النص المظلل (Selected Text)
- * 2. 📌 الملاحظة المكتوبة (Note - directly underneath)
- * 3. 🏷️ الكيانات والمفاهيم المكتشفة (Entities)
- * 4. 🔤 الجذور الصرفية الثلاثية (Trilateral Roots)
- * 5. أزرار التحكم (تعديل، حذف، إغلاق)
+ * Card Layout:
+ * 1. 📖 Selected Text
+ * 2. 📌 Note (directly underneath)
+ * 3. 🏷️ Discovered Entities & Concepts
+ * 4. 🔤 Trilateral Morphological Roots
+ * 5. Action Buttons (Edit, Delete, Close)
  */
 
 (() => {
@@ -21,22 +21,167 @@
   let currentSelectedRange = null;
 
   /* ═══════════════════════════════════════════════
-     1. INITIALIZATION
+     0. CANONICAL URL & STRING NORMALIZATION
+     ═══════════════════════════════════════════════ */
+  function canonicalizeUrl(rawUrl) {
+    if (!rawUrl) return "";
+    try {
+      let u = decodeURI(rawUrl).trim();
+      if (u.includes("#")) {
+        u = u.split("#")[0];
+      }
+      return u.replace(/\/+$/, "");
+    } catch (e) {
+      return (rawUrl || "").trim().split("#")[0].replace(/\/+$/, "");
+    }
+  }
+
+  function normalizeArabicChar(ch) {
+    const code = ch.charCodeAt(0);
+
+    // 1. Skip Arabic Harakat (diacritics), Tatweel, and invisible control characters
+    // Harakat: \u064B (fathatan) to \u0652 (sukun), \u0670 (dagger alif), \u0671 (wasla), \u0640 (tatweel)
+    if (
+      (code >= 0x064b && code <= 0x0652) ||
+      code === 0x0670 ||
+      code === 0x0671 ||
+      code === 0x0640 ||
+      (code >= 0x200b && code <= 0x200f) ||
+      code === 0xfeff ||
+      code === 0x00ad
+    ) {
+      return null; // Strip completely
+    }
+
+    // 2. Unify Alef forms
+    if (ch === "أ" || ch === "إ" || ch === "آ" || ch === "ٱ") return "ا";
+
+    // 3. Unify Taa Marbuta
+    if (ch === "ة") return "ه";
+
+    // 4. Unify Yaa / Alef Maksura
+    if (ch === "ى") return "ي";
+
+    // 5. Quotes, brackets, citations -> convert to space for uniform word boundaries
+    if (
+      ch === "«" ||
+      ch === "»" ||
+      ch === "“" ||
+      ch === "”" ||
+      ch === '"' ||
+      ch === "'" ||
+      ch === "(" ||
+      ch === ")" ||
+      ch === "[" ||
+      ch === "]" ||
+      ch === "{" ||
+      ch === "}"
+    ) {
+      return " ";
+    }
+
+    // 6. Punctuation (Arabic & Latin) -> convert to space
+    if (
+      ch === "\u060C" || // Arabic comma ،
+      ch === "\u061B" || // Arabic semicolon ؛
+      ch === "\u061F" || // Arabic question mark ؟
+      ch === "." ||
+      ch === "," ||
+      ch === ";" ||
+      ch === ":" ||
+      ch === "!" ||
+      ch === "?" ||
+      ch === "-" ||
+      ch === "—" ||
+      ch === "–" ||
+      ch === "/" ||
+      ch === "\\"
+    ) {
+      return " ";
+    }
+
+    // 7. Whitespace (including non-breaking spaces \u00A0) -> convert to space
+    if (/\s/.test(ch) || code === 0x00a0) {
+      return " ";
+    }
+
+    return ch.toLowerCase();
+  }
+
+  function normalizeStringForMatching(str) {
+    if (!str) return "";
+    let out = "";
+    let inSpace = false;
+    for (let i = 0; i < str.length; i++) {
+      const n = normalizeArabicChar(str[i]);
+      if (n === null) continue;
+      if (n === " ") {
+        if (!inSpace) {
+          out += " ";
+          inSpace = true;
+        }
+      } else {
+        out += n;
+        inSpace = false;
+      }
+    }
+    return out.trim();
+  }
+
+  /* ═══════════════════════════════════════════════
+     1. INITIALIZATION & LIFECYCLE
      ═══════════════════════════════════════════════ */
   async function init() {
-    chrome.storage.local.get({ wahaj_enabled: true }, (res) => {
-      isHighlightingEnabled = res.wahaj_enabled;
-    });
-
-    await restoreHighlights();
-
-    // Safety retry in case DOM was still finishing asynchronous rendering
-    setTimeout(() => {
-      restoreHighlights();
-    }, 700);
-
+    // Always register listeners first — they must work regardless of highlight toggle
     setupSelectionListener();
     setupMessageListener();
+
+    // Wait for stored state before doing anything else
+    await new Promise((resolve) => {
+      chrome.storage.local.get({ wahaj_enabled: true }, (res) => {
+        isHighlightingEnabled = res.wahaj_enabled;
+        resolve();
+      });
+    });
+
+    if (!isHighlightingEnabled) return; // Highlighting is off — skip restoration
+
+    // Run immediate restoration from local cache & backend
+    await restoreHighlights();
+
+    // Staggered retries to guarantee restoration after async page hydration / DOM rendering
+    [300, 800, 1800, 3500, 6000, 10000].forEach((delay) => {
+      setTimeout(() => restoreHighlights(), delay);
+    });
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", () => restoreHighlights());
+    }
+    // Also fire on full page load (images, scripts done)
+    window.addEventListener("load", () => restoreHighlights());
+    window.addEventListener("pageshow", () => restoreHighlights());
+
+    // Observe dynamic SPA content changes
+    setupMutationWatcher();
+  }
+
+  let mutationDebounceTimer = null;
+  function setupMutationWatcher() {
+    try {
+      const observer = new MutationObserver(() => {
+        clearTimeout(mutationDebounceTimer);
+        mutationDebounceTimer = setTimeout(() => {
+          if (currentAnnotations.length > 0) {
+            applyAnnotationsToDom(currentAnnotations);
+          }
+        }, 500);
+      });
+
+      const target = document.body || document.documentElement;
+      if (target) {
+        observer.observe(target, { childList: true, subtree: true });
+      }
+    } catch (e) {}
   }
 
   /* ═══════════════════════════════════════════════
@@ -94,14 +239,14 @@
 
     popup.innerHTML = `
       <div class="wahaj-popup-header">
-        <span class="wahaj-popup-title">🌟 وَهَج — تظليل نص عربي</span>
+        <span class="wahaj-popup-title">وَهَج — تظليل نص عربي</span>
         <button class="wahaj-popup-close" id="wahajPopupClose">✕</button>
       </div>
       <div class="wahaj-selected-preview">${text}</div>
-      <textarea class="wahaj-note-input" id="wahajNoteInput" placeholder="✏️ اكتب ملاحظتك على هذا النص (اختياري)..." rows="3"></textarea>
+      <textarea class="wahaj-note-input" id="wahajNoteInput" placeholder="اكتب ملاحظتك على هذا النص (اختياري)..." rows="3"></textarea>
       <div class="wahaj-popup-actions">
         <button class="wahaj-btn wahaj-btn-save" id="wahajSaveBtn">
-          💾 حفظ واستخراج الكيانات والجذور
+          حفظ واستخراج الكيانات والجذور
         </button>
         <button class="wahaj-btn wahaj-btn-cancel" id="wahajCancelBtn">
           إلغاء
@@ -186,6 +331,9 @@
 
       currentAnnotations.push(response);
 
+      // Cache locally in chrome.storage for instant offline recovery
+      updateLocalCache(currentAnnotations);
+
       // IMMEDIATELY OPEN IN-PAGE CARD OVER THE HIGHLIGHT!
       if (markElement) {
         showTooltipCard(markElement, response);
@@ -196,18 +344,18 @@
       }
       currentSelectedRange = null;
 
-      showToast("✅ تم التحليل واستخراج الكيانات والجذور!", "success");
+      showToast("تم التحليل واستخراج الكيانات والجذور بنجاح!", "success");
     } catch (err) {
       console.error("Wahaj save error:", err);
       saveBtn.disabled = false;
-      saveBtn.innerHTML = "💾 حفظ واستخراج الكيانات والجذور";
+      saveBtn.innerHTML = "حفظ واستخراج الكيانات والجذور";
       const msg = err && err.message ? err.message : "";
       if (msg.includes("Extension context invalidated")) {
-        showToast("⚠️ يرجى تحديث صفحة الويب (اضغط F5) لإعادة ربط الإضافة بالمتصفح", "warning");
+        showToast("يرجى تحديث صفحة الويب (اضغط F5) لإعادة ربط الإضافة بالمتصفح", "warning");
       } else if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
-        showToast("❌ تعذر الاتصال بالخادم — شغّل run.py في مجلد backend", "error");
+        showToast("تعذر الاتصال بالخادم — تأكد من تشغيل السيرفر", "error");
       } else {
-        showToast(`❌ خطأ: ${msg || "تأكد أن الخادم يعمل"}`, "error");
+        showToast(`خطأ: ${msg || "تأكد أن الخادم يعمل"}`, "error");
       }
     }
   }
@@ -272,9 +420,16 @@
       NodeFilter.SHOW_TEXT,
       {
         acceptNode: (node) => {
+          const parent = node.parentElement;
+          if (!parent) return NodeFilter.FILTER_REJECT;
+          const tag = parent.tagName.toUpperCase();
           if (
-            node.parentElement &&
-            node.parentElement.closest(".wahaj-selection-popup, .wahaj-tooltip-card, .wahaj-toast")
+            tag === "SCRIPT" ||
+            tag === "STYLE" ||
+            tag === "NOSCRIPT" ||
+            tag === "TEMPLATE" ||
+            tag === "SVG" ||
+            parent.closest(".wahaj-selection-popup, .wahaj-tooltip-card, .wahaj-toast")
           ) {
             return NodeFilter.FILTER_REJECT;
           }
@@ -293,62 +448,36 @@
   }
 
   /* ═══════════════════════════════════════════════
-     6. ROBUST CROSS-NODE TEXT SEARCH & RESTORATION
+     6. HIGH-PRECISION CROSS-NODE TEXT LOCATOR
      ═══════════════════════════════════════════════ */
-  function findAndHighlightCrossNodeText(searchText, annotationData) {
-    if (!searchText) return null;
-    const cleanSearch = searchText.replace(/\s+/g, " ").trim();
-    if (!cleanSearch) return null;
+  function createRangeForTargetText(container, targetText) {
+    if (!container || !targetText) return null;
 
-    // 1. Primary Priority: Search in leaf text-bearing blocks (p, li, td, headings)
-    const leafBlocks = document.querySelectorAll("p, li, blockquote, dt, dd, td, th, h1, h2, h3, h4, h5, h6");
-    for (const block of leafBlocks) {
-      if (block.closest(".wahaj-selection-popup, .wahaj-tooltip-card, .wahaj-toast")) continue;
-      const blockText = block.textContent.replace(/\s+/g, " ");
-      if (blockText.includes(cleanSearch)) {
-        const range = createRangeForSubstring(block, searchText);
-        if (range) {
-          return highlightRange(range, annotationData);
-        }
-      }
-    }
+    const cleanTargetNorm = normalizeStringForMatching(targetText);
+    if (!cleanTargetNorm || cleanTargetNorm.length < 2) return null;
 
-    // 2. Secondary Priority: Multi-paragraph or cross-element selections
-    // Find the leaf block that contains the start snippet of the highlighted text (first 35 chars)
-    const startSnippet = cleanSearch.slice(0, Math.min(35, cleanSearch.length));
-    for (const block of leafBlocks) {
-      if (block.closest(".wahaj-selection-popup, .wahaj-tooltip-card, .wahaj-toast")) continue;
-      const bText = block.textContent.replace(/\s+/g, " ");
-      if (bText.includes(startSnippet)) {
-        // Find closest parent article or content container
-        const cont = block.closest("article, main, [role='main'], .mw-parser-output, .entry-content, .article-body, #bodyContent") || block.parentElement.parentElement || document.body;
-        const range = createRangeForSubstring(cont, searchText);
-        if (range) {
-          return highlightRange(range, annotationData);
-        }
-      }
-    }
-
-    // 3. Final fallback: try document.body
-    const bodyRange = createRangeForSubstring(document.body, searchText);
-    if (bodyRange) {
-      return highlightRange(bodyRange, annotationData);
-    }
-
-    return null;
-  }
-
-  function createRangeForSubstring(container, text) {
-    if (!container || !text) return null;
-
+    // Collect content text nodes, skipping styles, scripts and Wahaj UI
+    const textNodes = [];
     const walker = document.createTreeWalker(
       container,
       NodeFilter.SHOW_TEXT,
       {
         acceptNode: (node) => {
+          const parent = node.parentElement;
+          if (!parent) return NodeFilter.FILTER_REJECT;
+          const tag = parent.tagName.toUpperCase();
           if (
-            node.parentElement &&
-            node.parentElement.closest(".wahaj-selection-popup, .wahaj-tooltip-card, .wahaj-toast, .wahaj-highlight")
+            tag === "SCRIPT" ||
+            tag === "STYLE" ||
+            tag === "NOSCRIPT" ||
+            tag === "TEMPLATE" ||
+            tag === "SVG" ||
+            tag === "CANVAS" ||
+            tag === "BUTTON" ||
+            tag === "INPUT" ||
+            tag === "TEXTAREA" ||
+            tag === "SELECT" ||
+            parent.closest(".wahaj-selection-popup, .wahaj-tooltip-card, .wahaj-toast")
           ) {
             return NodeFilter.FILTER_REJECT;
           }
@@ -357,78 +486,182 @@
       }
     );
 
-    const textNodes = [];
     while (walker.nextNode()) {
       textNodes.push(walker.currentNode);
     }
     if (textNodes.length === 0) return null;
 
-    // Build contiguous text and maintain exact 1-to-1 character index mapping
+    // Build contiguous character map with virtual spaces across block boundaries
     const charMap = [];
-    let combined = "";
+    let lastBlockEl = null;
 
     for (const node of textNodes) {
-      const str = node.textContent;
-      for (let i = 0; i < str.length; i++) {
-        charMap.push({ node, offset: i });
-        combined += str[i];
+      const parentBlock = node.parentElement
+        ? node.parentElement.closest("p, li, div, h1, h2, h3, h4, h5, h6, blockquote, td, th, tr, dt, dd, section, article")
+        : null;
+
+      if (lastBlockEl && parentBlock && lastBlockEl !== parentBlock) {
+        charMap.push({ node, offset: 0, char: " ", isVirtual: true });
+      }
+      lastBlockEl = parentBlock;
+
+      const content = node.textContent;
+      for (let i = 0; i < content.length; i++) {
+        charMap.push({ node, offset: i, char: content[i], isVirtual: false });
       }
     }
 
-    const cleanTarget = text.trim();
-    if (!cleanTarget) return null;
+    if (charMap.length === 0) return null;
 
-    // 1. Direct character match
-    let matchIdx = combined.indexOf(cleanTarget);
-    let matchLen = cleanTarget.length;
+    // Build normalized stream with direct 1-to-1 index mapping to charMap
+    const normStream = [];
+    let inSpace = false;
 
-    // 2. Normalized whitespace match (tracking back to exact charMap index)
+    for (let idx = 0; idx < charMap.length; idx++) {
+      const entry = charMap[idx];
+      const n = normalizeArabicChar(entry.char);
+      if (n === null) continue; // Diacritics, tatweel, zero-width chars skipped
+      if (n === " ") {
+        if (!inSpace) {
+          normStream.push({ normChar: " ", charMapIndex: idx });
+          inSpace = true;
+        }
+      } else {
+        normStream.push({ normChar: n, charMapIndex: idx });
+        inSpace = false;
+      }
+    }
+
+    if (normStream.length === 0) return null;
+
+    const streamString = normStream.map((s) => s.normChar).join("");
+
+    // 1. Exact Normalized Substring Search
+    let matchIdx = streamString.indexOf(cleanTargetNorm);
+
+    // 2. Anchor Word Matching (for citations [1] or Wikipedia templates interspersed in text)
     if (matchIdx === -1) {
-      const normTarget = cleanTarget.replace(/\s+/g, " ");
-      let normCombined = "";
-      const normToOrig = [];
-      let inWs = false;
-
-      for (let i = 0; i < combined.length; i++) {
-        const ch = combined[i];
-        if (/\s/.test(ch)) {
-          if (!inWs) {
-            normCombined += " ";
-            normToOrig.push(i);
-            inWs = true;
+      const words = cleanTargetNorm.split(" ").filter((w) => w.length > 1);
+      if (words.length >= 4) {
+        const startAnchor = words.slice(0, 3).join(" ");
+        const endAnchor = words.slice(-3).join(" ");
+        const posStart = streamString.indexOf(startAnchor);
+        if (posStart !== -1) {
+          const posEnd = streamString.indexOf(endAnchor, posStart);
+          if (posEnd !== -1) {
+            const matchSpan = (posEnd + endAnchor.length) - posStart;
+            const expectedSpan = cleanTargetNorm.length;
+            if (Math.abs(matchSpan - expectedSpan) / expectedSpan < 0.35) {
+              const startEntry = normStream[posStart];
+              const endEntry = normStream[posEnd + endAnchor.length - 1];
+              if (startEntry && endEntry) {
+                const startDom = charMap[startEntry.charMapIndex];
+                const endDom = charMap[endEntry.charMapIndex];
+                if (startDom && endDom) {
+                  try {
+                    const range = document.createRange();
+                    range.setStart(startDom.node, startDom.offset);
+                    range.setEnd(endDom.node, endDom.offset + 1);
+                    return range;
+                  } catch (e) {}
+                }
+              }
+            }
           }
-        } else {
-          normCombined += ch;
-          normToOrig.push(i);
-          inWs = false;
         }
       }
-
-      const normIdx = normCombined.indexOf(normTarget);
-      if (normIdx !== -1) {
-        matchIdx = normToOrig[normIdx];
-        const endNormIdx = normIdx + normTarget.length - 1;
-        const endOrigIdx = normToOrig[endNormIdx] || (matchIdx + normTarget.length - 1);
-        matchLen = (endOrigIdx - matchIdx) + 1;
-      }
     }
 
-    if (matchIdx === -1 || matchIdx >= charMap.length) return null;
+    if (matchIdx === -1) return null;
 
-    const startPt = charMap[matchIdx];
-    const endIdx = Math.min(charMap.length - 1, matchIdx + matchLen - 1);
-    const endPt = charMap[endIdx];
+    const endNormIdx = matchIdx + cleanTargetNorm.length - 1;
+    if (endNormIdx >= normStream.length) return null;
 
-    if (!startPt || !endPt) return null;
+    const startEntry = normStream[matchIdx];
+    const endEntry = normStream[endNormIdx];
+    if (!startEntry || !endEntry) return null;
+
+    const startDom = charMap[startEntry.charMapIndex];
+    const endDom = charMap[endEntry.charMapIndex];
+    if (!startDom || !endDom) return null;
 
     try {
       const range = document.createRange();
-      range.setStart(startPt.node, startPt.offset);
-      range.setEnd(endPt.node, endPt.offset + 1);
+      range.setStart(startDom.node, startDom.offset);
+      range.setEnd(endDom.node, endDom.offset + 1);
       return range;
-    } catch {
+    } catch (e) {
       return null;
     }
+  }
+
+  function findAndHighlightCrossNodeText(searchText, annotationData) {
+    if (!searchText) return null;
+
+    const existing = document.querySelector(`mark.wahaj-highlight[data-annotation-id="${annotationData.id}"]`);
+    if (existing) return existing;
+
+    const cleanTargetNorm = normalizeStringForMatching(searchText);
+    if (!cleanTargetNorm) return null;
+
+    const leafBlocks = document.querySelectorAll("p, li, blockquote, dt, dd, td, th, h1, h2, h3, h4, h5, h6");
+
+    // Pass 1: Check Leaf Blocks (Fast Path)
+    for (const block of leafBlocks) {
+      if (block.closest(".wahaj-selection-popup, .wahaj-tooltip-card, .wahaj-toast")) continue;
+      const bNorm = normalizeStringForMatching(block.textContent);
+      if (bNorm.includes(cleanTargetNorm)) {
+        const range = createRangeForTargetText(block, searchText);
+        if (range) {
+          return highlightRange(range, annotationData);
+        }
+      }
+    }
+
+    // Pass 2: Main Article / Body Content Container
+    const mainCont =
+      document.querySelector("article, main, [role='main'], .mw-parser-output, .entry-content, .article-body, #bodyContent, #content") ||
+      document.body;
+
+    const contRange = createRangeForTargetText(mainCont, searchText);
+    if (contRange) {
+      return highlightRange(contRange, annotationData);
+    }
+
+    // Pass 3: Multi-Paragraph Split Matching (Selections spanning multiple paragraphs or list items)
+    const paragraphs = searchText
+      .split(/\n+/)
+      .map((p) => p.trim())
+      .filter((p) => p.length >= 10);
+
+    if (paragraphs.length > 1) {
+      let anyMark = null;
+      for (const para of paragraphs) {
+        const pNorm = normalizeStringForMatching(para);
+        let foundRange = null;
+
+        for (const block of leafBlocks) {
+          if (block.closest(".wahaj-selection-popup, .wahaj-tooltip-card, .wahaj-toast")) continue;
+          const bNorm = normalizeStringForMatching(block.textContent);
+          if (bNorm.includes(pNorm)) {
+            foundRange = createRangeForTargetText(block, para);
+            if (foundRange) break;
+          }
+        }
+
+        if (!foundRange) {
+          foundRange = createRangeForTargetText(mainCont, para);
+        }
+
+        if (foundRange) {
+          const m = highlightRange(foundRange, annotationData);
+          if (m && !anyMark) anyMark = m;
+        }
+      }
+      if (anyMark) return anyMark;
+    }
+
+    return null;
   }
 
   /* ═══════════════════════════════════════════════
@@ -455,13 +688,13 @@
   }
 
   /* ═══════════════════════════════════════════════
-     8. THE IN-PAGE INTERACTIVE CARD (Exact Requested Layout)
+     8. THE IN-PAGE INTERACTIVE CARD
      Order:
-     1. 📖 النص المظلل (Selected Text)
-     2. 📌 الملاحظة (Note)
-     3. 🏷️ الكيانات المكتشفة (Entities)
-     4. 🔤 الجذور الصرفية الثلاثية (Trilateral Roots)
-     5. أزرار التحكم (تعديل، حذف)
+     1. 📖 Selected Text
+     2. 📌 Note
+     3. 🏷️ Discovered Entities
+     4. 🔤 Trilateral Roots
+     5. Action buttons (Edit, Delete)
      ═══════════════════════════════════════════════ */
   function showTooltipCard(anchor, annotationData) {
     removeTooltip();
@@ -473,7 +706,7 @@
     // 0. Header with close button
     const headerSection = `
       <div class="wahaj-tooltip-header">
-        <span class="wahaj-tooltip-title">🌟 بطاقة التحليل الصرفي والدلالي</span>
+        <span class="wahaj-tooltip-title">بطاقة التحليل الصرفي والدلالي</span>
         <button class="wahaj-tooltip-close" id="wahajCardClose" title="إغلاق">✕</button>
       </div>
     `;
@@ -481,7 +714,7 @@
     // 1. SELECTED TEXT (FIRST!)
     const selectedTextSection = `
       <div class="wahaj-card-section">
-        <span class="wahaj-card-label">📖 النص المظلل:</span>
+        <span class="wahaj-card-label">النص المظلل:</span>
         <div class="wahaj-card-selected-text">${annotationData.selected_text}</div>
       </div>
     `;
@@ -491,7 +724,7 @@
     if (annotationData.note) {
       noteSection = `
         <div class="wahaj-card-section">
-          <span class="wahaj-card-label">📌 الملاحظة المكتوبة:</span>
+          <span class="wahaj-card-label">الملاحظة المكتوبة:</span>
           <div class="wahaj-card-note">${annotationData.note}</div>
         </div>
       `;
@@ -503,11 +736,10 @@
     if (entities.length > 0) {
       const badges = entities
         .map((ent) => {
-          const catLabel = getCategoryLabel(ent.category);
           const catNameAr = ent.label_ar || getCategoryArabicName(ent.category);
           return `
             <span class="wahaj-entity-badge" data-category="${ent.category}">
-              ${catLabel} <strong>${ent.text}</strong>
+              <strong>${ent.text}</strong>
               <span class="wahaj-entity-category-pill">${catNameAr}</span>
             </span>
           `;
@@ -519,7 +751,7 @@
 
       entitiesSection = `
         <div class="wahaj-card-section">
-          <span class="wahaj-card-label">🏷️ الكيانات والمفاهيم المكتشفة:</span>
+          <span class="wahaj-card-label">الكيانات والمفاهيم المكتشفة:</span>
           <div class="wahaj-entity-list">${badges}</div>
           <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
             <span style="font-size:11px;color:#aaa;">نسبة الثقة (Confidence):</span>
@@ -560,7 +792,7 @@
 
       rootsSection = `
         <div class="wahaj-card-section">
-          <span class="wahaj-card-label">🔤 الجذور اللغوية:</span>
+          <span class="wahaj-card-label">الجذور اللغوية:</span>
           <div class="wahaj-roots-grid">${rootItems}</div>
         </div>
       `;
@@ -569,12 +801,11 @@
     // 5. ACTION BUTTONS (Edit + Delete)
     const actionsSection = `
       <div class="wahaj-card-actions">
-        <button class="wahaj-card-btn wahaj-card-btn-edit" id="wahajCardEdit">✏️ تعديل الملاحظة</button>
-        <button class="wahaj-card-btn wahaj-card-btn-delete" id="wahajCardDelete">🗑️ حذف التظليل</button>
+        <button class="wahaj-card-btn wahaj-card-btn-edit" id="wahajCardEdit">تعديل الملاحظة</button>
+        <button class="wahaj-card-btn wahaj-card-btn-delete" id="wahajCardDelete">حذف التظليل</button>
       </div>
     `;
 
-    // Assembled in the exact order requested: Header -> Text -> Note -> Entities -> Roots -> Actions
     tooltip.innerHTML = headerSection + selectedTextSection + noteSection + entitiesSection + rootsSection + actionsSection;
 
     const rect = anchor.getBoundingClientRect();
@@ -608,7 +839,7 @@
      ═══════════════════════════════════════════════ */
   function handleEditAnnotation(annotationData, anchor) {
     const currentNote = annotationData.note || "";
-    const newNote = prompt("✏️ تعديل الملاحظة:", currentNote);
+    const newNote = prompt("تعديل الملاحظة:", currentNote);
 
     if (newNote === null) return;
 
@@ -622,17 +853,22 @@
         if (res && res.success) {
           annotationData.note = newNote;
           anchor.dataset.annotationData = JSON.stringify({ ...annotationData, note: newNote });
+
+          const idx = currentAnnotations.findIndex((a) => a.id === annotationData.id);
+          if (idx !== -1) currentAnnotations[idx].note = newNote;
+          updateLocalCache(currentAnnotations);
+
           showTooltipCard(anchor, annotationData);
-          showToast("✅ تم تعديل الملاحظة بنجاح", "success");
+          showToast("تم تعديل الملاحظة بنجاح", "success");
         } else {
-          showToast("❌ خطأ في التعديل", "error");
+          showToast("خطأ في التعديل", "error");
         }
       }
     );
   }
 
   function handleDeleteAnnotation(annotationId, anchor) {
-    if (!confirm("🗑️ هل تريد بالتأكيد حذف هذا التظليل وملاحظته نهائياً؟")) return;
+    if (!confirm("هل تريد بالتأكيد حذف هذا التظليل وملاحظته نهائياً؟")) return;
 
     removeTooltip();
 
@@ -647,18 +883,73 @@
           });
 
           currentAnnotations = currentAnnotations.filter((a) => a.id !== annotationId);
-          showToast("🗑️ تم حذف التظليل بنجاح", "success");
+          updateLocalCache(currentAnnotations);
+
+          showToast("تم حذف التظليل بنجاح", "success");
         } else {
-          showToast("❌ خطأ في الحذف", "error");
+          showToast("خطأ في الحذف", "error");
         }
       }
     );
   }
 
   /* ═══════════════════════════════════════════════
-     10. RESTORE HIGHLIGHTS
+     10. OFFLINE-FIRST RESTORATION & CACHING
      ═══════════════════════════════════════════════ */
+  function updateLocalCache(annotations) {
+    const currentUrl = canonicalizeUrl(window.location.href);
+    const cacheKey = `wahaj_cache_${currentUrl}`;
+    const updateObj = {};
+    updateObj[cacheKey] = annotations;
+    chrome.storage.local.set(updateObj);
+  }
+
+  function applyAnnotationsToDom(annotations) {
+    const list = Array.isArray(annotations) ? annotations : [];
+    const validIds = new Set(list.map((a) => String(a.id)));
+
+    // 1. Remove obsolete highlights from DOM if deleted from backend/Supabase
+    const existingMarks = document.querySelectorAll("mark.wahaj-highlight");
+    existingMarks.forEach((m) => {
+      const markId = String(m.dataset.annotationId || "");
+      if (markId && !validIds.has(markId)) {
+        const textNode = document.createTextNode(m.textContent);
+        m.parentNode.replaceChild(textNode, m);
+      }
+    });
+
+    if (list.length === 0) return;
+
+    // 2. Add new highlights or update existing dataset
+    list.forEach((ann) => {
+      const marks = document.querySelectorAll(`mark.wahaj-highlight[data-annotation-id="${ann.id}"]`);
+      if (marks.length > 0) {
+        marks.forEach((m) => {
+          m.dataset.annotationData = JSON.stringify(ann);
+        });
+      } else {
+        findAndHighlightCrossNodeText(ann.selected_text, ann);
+      }
+    });
+  }
+
   async function restoreHighlights() {
+    if (!isHighlightingEnabled) return; // Don't restore if toggle is off
+    const currentUrl = canonicalizeUrl(window.location.href);
+    const cacheKey = `wahaj_cache_${currentUrl}`;
+
+    // 1. Instant pass from local storage cache (0ms latency, works offline or while backend loads)
+    try {
+      chrome.storage.local.get([cacheKey], (res) => {
+        const cached = res ? res[cacheKey] : null;
+        if (Array.isArray(cached) && cached.length > 0) {
+          currentAnnotations = cached;
+          applyAnnotationsToDom(cached);
+        }
+      });
+    } catch (e) {}
+
+    // 2. Network pass from backend (syncs latest annotations)
     try {
       const response = await new Promise((resolve, reject) => {
         chrome.runtime.sendMessage(
@@ -675,18 +966,13 @@
         );
       });
 
-      if (Array.isArray(response) && response.length > 0) {
+      if (Array.isArray(response)) {
         currentAnnotations = response;
-        response.forEach((ann) => {
-          // If this annotation is already highlighted on page, skip to avoid double wrapping
-          const existing = document.querySelector(`mark.wahaj-highlight[data-annotation-id="${ann.id}"]`);
-          if (!existing) {
-            findAndHighlightCrossNodeText(ann.selected_text, ann);
-          }
-        });
+        updateLocalCache(response);
+        applyAnnotationsToDom(response);
       }
-    } catch {
-      // Server offline, nothing to restore
+    } catch (e) {
+      // Offline fallback: cached annotations already applied
     }
   }
 
@@ -702,7 +988,7 @@
           removeTooltip();
         }
         showToast(
-          isHighlightingEnabled ? "🌟 تم تفعيل التظليل الذكي" : "⏸️ تم إيقاف التظليل مؤقتاً",
+          isHighlightingEnabled ? "تم تفعيل التظليل الذكي" : "تم إيقاف التظليل مؤقتاً",
           "success"
         );
       }
@@ -750,40 +1036,10 @@
     setTimeout(() => toast.remove(), 3000);
   }
 
-  function truncate(str, maxLen) {
-    if (!str) return "";
-    return str.length > maxLen ? str.substring(0, maxLen) + "..." : str;
-  }
-
-  function getCategoryLabel(category) {
-    const labels = {
-      SPECIES: "🌿",
-      PHENOMENON: "🔬",
-      WORK: "📖",
-      EVENT: "⚔️",
-      CHEMICAL: "🧪",
-      ANATOMY: "🫀",
-      LAW_RULE: "⚖️",
-      PERIOD: "⏳",
-      ASTRONOMY: "🌌",
-      ARTIFACT: "🏺",
-      UNIVERSITY: "🏛️",
-      LOCATION: "📍",
-      PERSON: "👤",
-      ORGANIZATION: "🏢",
-      DISEASE: "🦠",
-      MEDICAL_TERM: "💊",
-      TECHNOLOGY: "💻",
-      CONCEPT: "💡",
-      FIELD: "📚",
-      DATE: "📅",
-      OTHER: "🏷️",
-    };
-    return labels[category] || "🏷️";
-  }
 
   function getCategoryArabicName(category) {
     const names = {
+      GEOLOGY: "تضاريس / علوم الأرض",
       SPECIES: "كائن حي / نبات",
       PHENOMENON: "ظاهرة علمية",
       WORK: "مؤلَّف / وثيقة",

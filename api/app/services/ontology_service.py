@@ -69,6 +69,8 @@ class OntologyService:
                 g.add((ent_uri, RDFS.label, Literal(ent.text, lang="ar")))
                 g.add((ent_uri, WAHAJ.confidence, Literal(ent.confidence, datatype=XSD.float)))
                 g.add((ent_uri, WAHAJ.category, Literal(ent.category)))
+                if hasattr(ent, "label_ar") and ent.label_ar:
+                    g.add((ent_uri, RDFS.comment, Literal(ent.label_ar, lang="ar")))
 
                 # Map categories to schema.org or ontology classes
                 cat = ent.category.upper()
@@ -76,6 +78,8 @@ class OntologyService:
                     g.add((ent_uri, RDF.type, SCHEMA.CollegeOrUniversity))
                 elif cat == "LOCATION":
                     g.add((ent_uri, RDF.type, SCHEMA.Place))
+                elif cat == "GEOLOGY":
+                    g.add((ent_uri, RDF.type, SCHEMA.Landform))
                 elif cat == "PERSON":
                     g.add((ent_uri, RDF.type, SCHEMA.Person))
                 elif cat == "ORGANIZATION":

@@ -114,6 +114,10 @@ async function getAnnotations(url) {
   let cleanUrl = url;
   try {
     cleanUrl = decodeURI(url);
+    if (cleanUrl.includes("#")) {
+      cleanUrl = cleanUrl.split("#")[0];
+    }
+    cleanUrl = cleanUrl.replace(/\/+$/, "");
   } catch (e) {}
   const res = await fetch(
     `${API_BASE}/v1/annotations?url=${encodeURIComponent(cleanUrl)}`

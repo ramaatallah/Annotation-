@@ -51,6 +51,7 @@ class DetectedEntity(Base):
     annotation_id = Column(Integer, ForeignKey("annotations.id", ondelete="CASCADE"), nullable=True)
     text = Column(String(512), nullable=False, index=True)
     category = Column(String(128), nullable=False, index=True)
+    label_ar = Column(String(256), nullable=True)
     confidence = Column(Float, default=1.0)
     source = Column(String(64), default="Hybrid")
     start_char = Column(Integer, default=0)
